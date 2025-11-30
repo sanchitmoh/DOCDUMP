@@ -3,7 +3,7 @@
 import { Navbar } from "@/components/navbar"
 import { Footer } from "@/components/footer"
 import { useState } from "react"
-import { Search, DownloadCloud, Trash2, Star, Eye, Share2, Sparkles, X } from "lucide-react"
+import { Search, DownloadCloud, Trash2, Star, Share2, Sparkles, X } from "lucide-react"
 import { useAuth } from "@/context/auth-context"
 
 const savedDocumentsData = [
@@ -52,11 +52,9 @@ export default function SavedDocuments() {
   const [savedDocs, setSavedDocs] = useState(savedDocumentsData)
   const [selectedDoc, setSelectedDoc] = useState<any>(null)
   const [showDetailModal, setShowDetailModal] = useState(false)
-  const [showPreviewModal, setShowPreviewModal] = useState(false)
   const [showSummaryModal, setShowSummaryModal] = useState(false)
   const [aiSummary, setAiSummary] = useState("")
   const [generatingSummary, setGeneratingSummary] = useState(false)
-  const [showShareModal, setShowShareModal] = useState(false)
   const [copiedLink, setCopiedLink] = useState(false)
 
   const filteredDocs = savedDocs.filter(
@@ -72,11 +70,6 @@ export default function SavedDocuments() {
   const handleOpenDetails = (doc: any) => {
     setSelectedDoc(doc)
     setShowDetailModal(true)
-  }
-
-  const handlePreviewFile = (doc: any) => {
-    setSelectedDoc(doc)
-    setShowPreviewModal(true)
   }
 
   const generateAISummary = async () => {
@@ -188,23 +181,6 @@ export default function SavedDocuments() {
                   <div className="flex items-center space-x-3 ml-4">
                     <span className="text-xs text-muted-foreground hidden md:inline">{doc.size}</span>
                     <button
-                      onClick={() => handlePreviewFile(doc)}
-                      className="p-2 hover:bg-secondary rounded-lg transition"
-                      title="Preview"
-                    >
-                      <Eye className="w-5 h-5 text-muted-foreground hover:text-primary" />
-                    </button>
-                    <button
-                      onClick={() => {
-                        handleOpenDetails(doc)
-                        setShowShareModal(true)
-                      }}
-                      className="p-2 hover:bg-secondary rounded-lg transition"
-                      title="Share"
-                    >
-                      <Share2 className="w-5 h-5 text-muted-foreground hover:text-primary" />
-                    </button>
-                    <button
                       onClick={() => handleOpenDetails(doc)}
                       className="p-2 hover:bg-secondary rounded-lg transition"
                       title="View Details"
@@ -261,6 +237,50 @@ export default function SavedDocuments() {
               </div>
             </div>
 
+            {/* Share Section in Detail Modal */}
+            <div className="mb-6 pb-6 border-b border-border">
+              <h3 className="text-sm font-semibold text-foreground mb-3">Share Document</h3>
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-muted-foreground">Share Link</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={`${window.location.origin}/document/${selectedDoc.id}`}
+                      readOnly
+                      className="flex-1 px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-primary"
+                    />
+                    <button
+                      onClick={handleCopyLink}
+                      className={`px-4 py-2 rounded-lg font-medium transition text-sm ${
+                        copiedLink ? "bg-green-500/20 text-green-400" : "bg-primary/20 text-primary hover:bg-primary/30"
+                      }`}
+                    >
+                      {copiedLink ? "Copied!" : "Copy"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-muted-foreground">Share Via</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 rounded-lg font-medium transition text-sm">
+                      📧 Email
+                    </button>
+                    <button className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-600/10 hover:bg-blue-600/20 text-blue-300 rounded-lg font-medium transition text-sm">
+                      👥 Teams
+                    </button>
+                    <button className="flex items-center justify-center gap-2 px-3 py-2 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 rounded-lg font-medium transition text-sm">
+                      𝕏 Twitter
+                    </button>
+                    <button className="flex items-center justify-center gap-2 px-3 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-lg font-medium transition text-sm">
+                      🔗 LinkedIn
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <button
               onClick={generateAISummary}
               disabled={generatingSummary}
@@ -272,44 +292,12 @@ export default function SavedDocuments() {
 
             <div className="flex gap-2 pt-4 border-t border-border">
               <button
-                onClick={() => {
-                  setShowDetailModal(false)
-                  setShowPreviewModal(true)
-                }}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-primary/20 text-primary rounded-lg hover:bg-primary/30 transition"
-              >
-                <Eye className="w-4 h-4" /> Preview
-              </button>
-              <button
                 onClick={() => setShowDetailModal(false)}
                 className="flex-1 px-4 py-2 bg-secondary hover:bg-secondary/80 transition rounded-lg text-foreground font-medium"
               >
                 Close
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Preview Modal */}
-      {showPreviewModal && selectedDoc && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="glass rounded-lg p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="flex items-start justify-between mb-4">
-              <h2 className="text-xl font-semibold text-foreground">Preview: {selectedDoc.title}</h2>
-              <button onClick={() => setShowPreviewModal(false)} className="p-1 hover:bg-secondary rounded">
-                <X className="w-5 h-5 text-muted-foreground" />
-              </button>
-            </div>
-            <div className="bg-white/5 rounded-lg p-12 text-center min-h-96 flex items-center justify-center">
-              <p className="text-3xl">{getFilePreview(selectedDoc.type)}</p>
-            </div>
-            <button
-              onClick={() => setShowPreviewModal(false)}
-              className="w-full mt-6 px-4 py-2 bg-secondary hover:bg-secondary/80 transition rounded-lg text-foreground font-medium"
-            >
-              Close
-            </button>
           </div>
         </div>
       )}
@@ -331,67 +319,6 @@ export default function SavedDocuments() {
             </div>
             <button
               onClick={() => setShowSummaryModal(false)}
-              className="w-full px-4 py-2 bg-secondary hover:bg-secondary/80 transition rounded-lg text-foreground font-medium"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Share Modal */}
-      {showShareModal && selectedDoc && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="glass rounded-lg p-6 max-w-md w-full">
-            <div className="flex items-start justify-between mb-4">
-              <h2 className="text-lg font-semibold text-foreground">Share Document</h2>
-              <button onClick={() => setShowShareModal(false)} className="p-1 hover:bg-secondary rounded">
-                <X className="w-5 h-5 text-muted-foreground" />
-              </button>
-            </div>
-
-            <div className="space-y-3 mb-6">
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-muted-foreground">Share Link</label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={`${window.location.origin}/document/${selectedDoc.id}`}
-                    readOnly
-                    className="flex-1 px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-primary"
-                  />
-                  <button
-                    onClick={handleCopyLink}
-                    className={`px-4 py-2 rounded-lg font-medium transition ${
-                      copiedLink ? "bg-green-500/20 text-green-400" : "bg-primary/20 text-primary hover:bg-primary/30"
-                    }`}
-                  >
-                    {copiedLink ? "Copied!" : "Copy"}
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-muted-foreground">Share Via</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 rounded-lg font-medium transition text-sm">
-                    📧 Email
-                  </button>
-                  <button className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-600/10 hover:bg-blue-600/20 text-blue-300 rounded-lg font-medium transition text-sm">
-                    👥 Teams
-                  </button>
-                  <button className="flex items-center justify-center gap-2 px-3 py-2 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 rounded-lg font-medium transition text-sm">
-                    𝕏 Twitter
-                  </button>
-                  <button className="flex items-center justify-center gap-2 px-3 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-lg font-medium transition text-sm">
-                    🔗 LinkedIn
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <button
-              onClick={() => setShowShareModal(false)}
               className="w-full px-4 py-2 bg-secondary hover:bg-secondary/80 transition rounded-lg text-foreground font-medium"
             >
               Close
