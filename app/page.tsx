@@ -13,14 +13,19 @@ declare global {
 }
 
 export default function Intro() {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, user, isLoading } = useAuth()
   const router = useRouter()
   const containerRef = useRef<HTMLDivElement>(null)
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
-    if (isAuthenticated) {
-      router.push('/dashboard')
+    if (!isLoading && isAuthenticated && user) {
+      // Redirect based on user type
+      if (user.type === 'organization') {
+        router.push('/admin')
+      } else {
+        router.push('/dashboard')
+      }
     }
     setMounted(true)
 

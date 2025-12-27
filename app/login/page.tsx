@@ -5,26 +5,69 @@ import type React from "react"
 import Link from "next/link"
 import { Navbar } from "@/components/navbar"
 import { Footer } from "@/components/footer"
+import { Captcha } from "@/components/captcha"
 import { useState } from "react"
 import { Mail, Lock, ArrowRight } from "lucide-react"
 import { useAuth } from "@/context/auth-context"
 import { useToast } from "@/hooks/use-toast"
+import { useRouter } from "next/navigation"
 
 export default function Login() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [rememberMe, setRememberMe] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const { login } = useAuth()
   const { addToast } = useToast()
+  const router = useRouter()
+
+  const handleCaptchaVerify = (token: string) => {
+    setCaptchaToken(token)
+  }
+
+  const handleCaptchaError = (error: string) => {
+    addToast(error, "error")
+    setCaptchaToken("")
+  }
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    if (!email || !password) {
+      addToast("Please fill in all fields", "error")
+      return
+    }
+
+    if (!captchaToken) {
+      addToast("Please complete the CAPTCHA verification", "error")
+      return
+    }
+
     setIsLoading(true)
-    setTimeout(() => {
+    
+    try {
+      const result = await login(email, password, captchaToken, rememberMe)
+      
+      if (result.success) {
+        addToast(result.message, "success")
+        
+        // Redirect based on user type
+        if (result.user?.type === 'organization') {
+          router.push("/admin")
+        } else {
+          router.push("/dashboard")
+        }
+      } else {
+        addToast(result.message, "error")
+        setCaptchaToken("") // Reset CAPTCHA on error
+      }
+    } catch (error) {
+      addToast("An unexpected error occurred", "error")
+      setCaptchaToken("")
+    } finally {
       setIsLoading(false)
-      login(email, password)
-      addToast("Login successful! Welcome back.", "success")
-    }, 1500)
+    }
   }
 
   return (
@@ -48,7 +91,7 @@ export default function Login() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@company.com"
-                    className="w-full pl-10 pr-4 py-3 bg-card border border-border rounded-lg text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    className="w-full pl-10 pr-4 py-3 bg-white/5 border border-white/10 rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
                     required
                   />
                 </div>
@@ -63,58 +106,73 @@ export default function Login() {
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full pl-10 pr-4 py-3 bg-card border border-border rounded-lg text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    placeholder="Enter your password"
+                    className="w-full pl-10 pr-4 py-3 bg-white/5 border border-white/10 rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
                     required
                   />
                 </div>
               </div>
 
-              {/* Remember Me & Forgot Password */}
-              <div className="flex items-center justify-between text-sm">
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input type="checkbox" className="w-4 h-4 rounded border-border bg-card" />
-                  <span className="text-muted-foreground">Remember me</span>
+              {/* Remember Me */}
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="w-4 h-4 text-primary bg-white/5 border-white/10 rounded focus:ring-primary/20"
+                  />
+                  <span className="text-sm text-muted-foreground">Remember me</span>
                 </label>
-                <Link href="/forgot-password" className="text-primary hover:text-accent transition">
+                <Link
+                  href="/forgot-password"
+                  className="text-sm text-primary hover:text-primary/80 transition-colors"
+                >
                   Forgot password?
                 </Link>
               </div>
 
-              {/* Submit */}
+              {/* CAPTCHA */}
+              <div className="py-2">
+                <Captcha
+                  onVerify={handleCaptchaVerify}
+                  onError={handleCaptchaError}
+                  action="login"
+                  theme="dark"
+                />
+              </div>
+
+              {/* Submit Button */}
               <button
                 type="submit"
-                disabled={isLoading}
-                className="w-full py-3 bg-primary hover:opacity-90 transition rounded-lg text-primary-foreground font-medium flex items-center justify-center space-x-2 disabled:opacity-50"
+                disabled={isLoading || !captchaToken}
+                className="w-full bg-primary hover:bg-primary/90 disabled:bg-primary/50 text-primary-foreground py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
               >
-                <span>{isLoading ? "Signing in..." : "Sign In"}</span>
-                {!isLoading && <ArrowRight className="w-4 h-4" />}
+                {isLoading ? (
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <>
+                    Sign In
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
               </button>
             </form>
 
-            {/* Divider */}
-            <div className="relative my-6">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-border"></div>
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-card text-muted-foreground">Or continue with</span>
-              </div>
+            <div className="mt-6 text-center space-y-3">
+              <p className="text-muted-foreground">
+                <Link href="/forgot-password" className="text-primary hover:text-primary/80 transition-colors">
+                  Forgot your password?
+                </Link>
+              </p>
+              <p className="text-muted-foreground">
+                Don't have an account?{" "}
+                <Link href="/signup" className="text-primary hover:text-primary/80 transition-colors">
+                  Sign up
+                </Link>
+              </p>
             </div>
-
-            {/* Social Login */}
-            <button className="w-full py-3 bg-card border border-border hover:bg-secondary transition rounded-lg text-foreground font-medium">
-              Continue with SSO
-            </button>
           </div>
-
-          {/* Sign Up Link */}
-          <p className="text-center text-muted-foreground">
-            Don't have an account?{" "}
-            <Link href="/signup" className="text-primary hover:text-accent transition font-medium">
-              Sign up
-            </Link>
-          </p>
         </div>
       </main>
 

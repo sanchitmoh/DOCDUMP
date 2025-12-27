@@ -46,7 +46,7 @@ const savedDocumentsData = [
 ]
 
 export default function SavedDocuments() {
-  const { isAuthenticated, userType } = useAuth()
+  const { isAuthenticated, user } = useAuth()
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedType, setSelectedType] = useState("All")
   const [savedDocs, setSavedDocs] = useState(savedDocumentsData)

@@ -7,6 +7,8 @@ import { useState, useEffect, useRef } from "react"
 import { Mail, Lock, User, Key, ArrowRight, CheckCircle2, AlertCircle } from "lucide-react"
 import { useAuth } from "@/context/auth-context"
 import { useToast } from "@/hooks/use-toast"
+import { Captcha } from "@/components/captcha"
+import { useRouter } from "next/navigation"
 
 declare global {
   interface Window {
@@ -26,10 +28,13 @@ export default function EmployeeSignup() {
   const [fetchedDepartments, setFetchedDepartments] = useState<string[]>([])
   const [emailStatus, setEmailStatus] = useState<"idle" | "checking" | "available" | "taken">("idle")
   const [emailSuggestions, setEmailSuggestions] = useState<string[]>([])
+  const [captchaToken, setCaptchaToken] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const { signUp } = useAuth()
   const { addToast } = useToast()
+  const router = useRouter()
   const formRef = useRef<HTMLDivElement>(null)
 
   const inputWrapperClass =
@@ -62,6 +67,13 @@ export default function EmployeeSignup() {
       }
     }
     document.head.appendChild(script)
+
+    // Cleanup debounce timeout on unmount
+    return () => {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current)
+      }
+    }
   }, [])
 
   const checkEmailAvailability = async (email: string) => {
@@ -71,26 +83,60 @@ export default function EmployeeSignup() {
       return
     }
 
+    // Need organization code to check employee email
+    if (!formData.orgCode || formData.orgCode.length !== 8) {
+      setEmailStatus("idle")
+      setEmailSuggestions([])
+      return
+    }
+
+    // Clear existing timeout
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current)
+    }
+
     setEmailStatus("checking")
 
-    await new Promise((resolve) => setTimeout(resolve, 800))
+    // Debounce the API call by 500ms
+    debounceTimeoutRef.current = setTimeout(async () => {
+      try {
+        const response = await fetch('/api/auth/check-email', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            email,
+            userType: 'employee',
+            orgCode: formData.orgCode,
+          }),
+        })
 
-    const takenEmails = ["john@company.com", "jane@company.com"]
-    const isAvailable = !takenEmails.includes(email.toLowerCase())
+        const data = await response.json()
 
-    if (isAvailable) {
-      setEmailStatus("available")
-      setEmailSuggestions([])
-    } else {
-      setEmailStatus("taken")
-      const [name, domain] = email.split("@")
-      const suggestions = [
-        `${name}.${Math.floor(Math.random() * 100)}@${domain}`,
-        `${name}2@${domain}`,
-        `${name}_emp@${domain}`,
-      ]
-      setEmailSuggestions(suggestions)
-    }
+        if (response.ok && data.success) {
+          if (data.available) {
+            setEmailStatus("available")
+            setEmailSuggestions([])
+          } else {
+            setEmailStatus("taken")
+            setEmailSuggestions(data.suggestions || [])
+          }
+        } else {
+          // Handle API errors gracefully
+          setEmailStatus("idle")
+          setEmailSuggestions([])
+          if (data.error && data.error !== 'Organization code is required for employee email check') {
+            addToast(data.error, "error")
+          }
+        }
+      } catch (error) {
+        console.error('Email check error:', error)
+        setEmailStatus("idle")
+        setEmailSuggestions([])
+        addToast("Unable to check email availability", "error")
+      }
+    }, 500) // 500ms debounce delay
   }
 
   const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -99,16 +145,71 @@ export default function EmployeeSignup() {
     checkEmailAvailability(email)
   }
 
-  const handleOrgCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCaptchaVerify = (token: string) => {
+    setCaptchaToken(token)
+  }
+
+  const handleCaptchaError = (error: string) => {
+    addToast(error, "error")
+    setCaptchaToken("")
+  }
+
+  const handleOrgCodeChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const code = e.target.value.toUpperCase()
     setFormData({ ...formData, orgCode: code })
 
     if (code.length === 8) {
-      const defaultDepts = ["General", "HR", "IT", "Marketing", "Sales", "Finance"]
-      setFetchedDepartments(defaultDepts)
+      try {
+        // Fetch departments for this organization
+        const response = await fetch('/api/auth/departments-by-code', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            orgCode: code,
+          }),
+        })
+
+        const data = await response.json()
+
+        if (response.ok && data.success) {
+          // Set departments from the organization
+          setFetchedDepartments(data.departments)
+          addToast(`Connected to ${data.organization.name}`, "success")
+          
+          // Re-check email availability with new org code (will be debounced)
+          if (formData.email) {
+            checkEmailAvailability(formData.email)
+          }
+        } else {
+          // Invalid organization code
+          setFetchedDepartments([])
+          setFormData((prev) => ({ ...prev, department: "" }))
+          setEmailStatus("idle")
+          setEmailSuggestions([])
+          addToast(data.error || "Invalid organization code", "error")
+        }
+      } catch (error) {
+        console.error('Error fetching organization departments:', error)
+        setFetchedDepartments([])
+        setFormData((prev) => ({ ...prev, department: "" }))
+        setEmailStatus("idle")
+        setEmailSuggestions([])
+        addToast("Unable to verify organization code", "error")
+      }
     } else {
+      // Reset when org code is not 8 characters
       setFetchedDepartments([])
       setFormData((prev) => ({ ...prev, department: "" }))
+      // Reset email status when org code is invalid
+      setEmailStatus("idle")
+      setEmailSuggestions([])
+      
+      // Clear any pending debounced email check
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current)
+      }
     }
   }
 
@@ -135,15 +236,42 @@ export default function EmployeeSignup() {
       return
     }
 
+    if (!captchaToken) {
+      addToast("Please complete the CAPTCHA verification", "error")
+      return
+    }
+
     setIsLoading(true)
-    setTimeout(() => {
+    
+    try {
+      const result = await signUp(
+        formData.email, 
+        formData.password, 
+        formData.fullName, 
+        "employee", 
+        {
+          orgCode: formData.orgCode,
+          department: formData.department,
+        },
+        captchaToken
+      )
+
+      if (result.success) {
+        addToast(result.message, "success")
+        // Store temp token for OTP verification
+        localStorage.setItem("tempToken", result.tempToken || "")
+        localStorage.setItem("signupEmail", formData.email)
+        router.push("/verify-otp")
+      } else {
+        addToast(result.message, "error")
+        setCaptchaToken("") // Reset CAPTCHA on error
+      }
+    } catch (error) {
+      addToast("An unexpected error occurred", "error")
+      setCaptchaToken("")
+    } finally {
       setIsLoading(false)
-      signUp(formData.email, formData.password, formData.fullName, "employee", {
-        orgCode: formData.orgCode,
-        department: formData.department,
-      })
-      addToast("Account created successfully! Please verify your email.", "success")
-    }, 1500)
+    }
   }
 
   if (!mounted) return null
@@ -224,7 +352,10 @@ export default function EmployeeSignup() {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="block text-sm font-semibold text-foreground">Email Address</label>
-                  {emailStatus === "checking" && <span className="text-xs text-yellow-500">Checking...</span>}
+                  {emailStatus === "checking" && <span className="text-xs text-yellow-500 flex items-center gap-1">
+                    <div className="w-3 h-3 border border-yellow-500 border-t-transparent rounded-full animate-spin"></div>
+                    Checking...
+                  </span>}
                   {emailStatus === "available" && (
                     <span className="text-xs text-green-500 flex items-center gap-1">
                       <CheckCircle2 className="w-3 h-3" /> Available
@@ -342,6 +473,16 @@ export default function EmployeeSignup() {
                 </div>
               </div>
 
+              {/* CAPTCHA */}
+              <div className="py-2">
+                <Captcha
+                  onVerify={handleCaptchaVerify}
+                  onError={handleCaptchaError}
+                  action="register_employee"
+                  theme="dark"
+                />
+              </div>
+
               <label className="flex items-start space-x-3 text-sm cursor-pointer group">
                 <div className="relative top-0.5">
                   <input
@@ -364,7 +505,7 @@ export default function EmployeeSignup() {
 
               <button
                 type="submit"
-                disabled={isLoading || emailStatus === "taken"}
+                disabled={isLoading || emailStatus === "taken" || !captchaToken}
                 style={{
                   background: "linear-gradient(135deg, rgba(168, 85, 247, 0.8) 0%, rgba(236, 72, 153, 0.8) 100%)",
                   boxShadow: "0 15px 30px rgba(168, 85, 247, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)",

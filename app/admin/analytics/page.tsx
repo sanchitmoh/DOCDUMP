@@ -47,10 +47,10 @@ const COLORS = ["#06b6d4", "#0ea5e9", "#6366f1"]
 const DEPARTMENT_COLORS = ["#06b6d4", "#0ea5e9", "#6366f1", "#8b5cf6", "#ec4899", "#f59e0b"]
 
 export default function Analytics() {
-  const { userType, isAuthenticated } = useAuth()
+  const { user, isAuthenticated } = useAuth()
   const router = useRouter()
 
-  if (!isAuthenticated || userType !== "organization") {
+  if (!isAuthenticated || user?.type !== "organization") {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center">
         <h1 className="text-2xl font-bold text-foreground">Access Denied</h1>

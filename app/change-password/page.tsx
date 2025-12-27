@@ -53,15 +53,42 @@ export default function ChangePassword() {
 
     setIsLoading(true)
 
-    setTimeout(() => {
-      setIsLoading(false)
-      addToast("Password successfully changed!", "success")
-      setFormData({
-        currentPassword: "",
-        newPassword: "",
-        confirmPassword: "",
+    try {
+      const response = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          currentPassword: formData.currentPassword,
+          newPassword: formData.newPassword,
+        }),
       })
-    }, 1500)
+
+      const data = await response.json()
+
+      if (response.ok && data.success) {
+        addToast(data.message, "success")
+        setFormData({
+          currentPassword: "",
+          newPassword: "",
+          confirmPassword: "",
+        })
+        
+        // Redirect to login after successful password change
+        setTimeout(() => {
+          window.location.href = "/login"
+        }, 2000)
+      } else {
+        addToast(data.error || "Failed to change password", "error")
+      }
+    } catch (error) {
+      console.error('Change password error:', error)
+      addToast("Failed to change password. Please try again.", "error")
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -102,7 +129,7 @@ export default function ChangePassword() {
                   className="w-full px-4 py-2 bg-card border border-border rounded-lg text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                   required
                 />
-                <p className="text-xs text-muted-foreground mt-2">Must be at least 8 characters</p>
+                <p className="text-xs text-muted-foreground mt-2">Must be at least 8 characters and different from your current password</p>
               </div>
 
               <div>

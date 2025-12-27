@@ -66,7 +66,7 @@ const contributionsData = [
 ]
 
 export default function YourContributions() {
-  const { isAuthenticated, userType, userEmail } = useAuth()
+  const { isAuthenticated, user } = useAuth()
   const [searchQuery, setSearchQuery] = useState("")
   const [filterStatus, setFilterStatus] = useState("All")
   const [contributions, setContributions] = useState(contributionsData)
@@ -147,9 +147,9 @@ export default function YourContributions() {
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-foreground mb-2">Your Contributions</h1>
             <p className="text-muted-foreground">
-              {userType === "organization"
+              {user?.type === "organization"
                 ? "Documents uploaded by your organization"
-                : `Documents you have contributed as ${userEmail}`}
+                : `Documents you have contributed as ${user?.email}`}
             </p>
           </div>
 

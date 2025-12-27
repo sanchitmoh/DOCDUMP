@@ -3,7 +3,7 @@
 import { Navbar } from "@/components/navbar"
 import { Footer } from "@/components/footer"
 import { useAuth } from "@/context/auth-context"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Users, Mail, Trash2, ChevronLeft, ChevronRight } from "lucide-react"
 
 interface Person {
@@ -15,61 +15,69 @@ interface Person {
   joinDate: string
 }
 
-const allPeople: Person[] = [
-  { id: 1, name: "John Doe", email: "john@company.com", department: "HR", status: "active", joinDate: "2024-01-15" },
-  { id: 2, name: "Jane Smith", email: "jane@company.com", department: "IT", status: "active", joinDate: "2024-02-20" },
-  {
-    id: 3,
-    name: "Mike Johnson",
-    email: "mike@company.com",
-    department: "Marketing",
-    status: "active",
-    joinDate: "2024-03-10",
-  },
-  {
-    id: 4,
-    name: "Sarah Williams",
-    email: "sarah@company.com",
-    department: "General",
-    status: "active",
-    joinDate: "2024-01-25",
-  },
-  {
-    id: 5,
-    name: "Alex Brown",
-    email: "alex@company.com",
-    department: "IT",
-    status: "inactive",
-    joinDate: "2024-04-05",
-  },
-  { id: 6, name: "Emma Davis", email: "emma@company.com", department: "HR", status: "active", joinDate: "2024-04-15" },
-  {
-    id: 7,
-    name: "Chris Wilson",
-    email: "chris@company.com",
-    department: "Marketing",
-    status: "active",
-    joinDate: "2024-05-01",
-  },
-  {
-    id: 8,
-    name: "Lisa Martinez",
-    email: "lisa@company.com",
-    department: "General",
-    status: "active",
-    joinDate: "2024-02-08",
-  },
-]
-
 const ITEMS_PER_PAGE = 5
 
 export default function People() {
-  const { userType, isAuthenticated, organizationData, addDepartment } = useAuth()
+  const { user, isAuthenticated } = useAuth()
   const [currentPage, setCurrentPage] = useState(1)
   const [newDepartment, setNewDepartment] = useState("")
   const [showAddDept, setShowAddDept] = useState(false)
+  const [departments, setDepartments] = useState<string[]>([])
+  const [isLoadingDepartments, setIsLoadingDepartments] = useState(true)
+  const [people, setPeople] = useState<Person[]>([])
+  const [isLoadingPeople, setIsLoadingPeople] = useState(true)
+  const [searchTerm, setSearchTerm] = useState("")
+  const [selectedDepartment, setSelectedDepartment] = useState("All")
 
-  if (!isAuthenticated || userType !== "organization") {
+  // Fetch departments and people on component mount
+  useEffect(() => {
+    if (isAuthenticated && user?.type === "organization") {
+      fetchDepartments()
+      fetchPeople()
+    }
+  }, [isAuthenticated, user])
+
+  const fetchPeople = async () => {
+    try {
+      setIsLoadingPeople(true)
+      const response = await fetch('/api/admin/people', {
+        credentials: 'include',
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success) {
+          setPeople(data.people)
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching people:', error)
+    } finally {
+      setIsLoadingPeople(false)
+    }
+  }
+
+  const fetchDepartments = async () => {
+    try {
+      setIsLoadingDepartments(true)
+      const response = await fetch('/api/admin/departments', {
+        credentials: 'include',
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success) {
+          setDepartments(data.departments.map((dept: any) => dept.name))
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching departments:', error)
+    } finally {
+      setIsLoadingDepartments(false)
+    }
+  }
+
+  if (!isAuthenticated || user?.type !== "organization") {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center">
         <h1 className="text-2xl font-bold text-foreground">Access Denied</h1>
@@ -78,18 +86,42 @@ export default function People() {
     )
   }
 
-  const handleAddDepartment = () => {
+  const handleAddDepartment = async () => {
     if (newDepartment.trim()) {
-      addDepartment(newDepartment.trim())
-      setNewDepartment("")
-      setShowAddDept(false)
+      try {
+        const response = await fetch('/api/admin/departments', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+          body: JSON.stringify({
+            name: newDepartment.trim(),
+          }),
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          if (data.success) {
+            // Refresh departments list
+            await fetchDepartments()
+            setNewDepartment("")
+            setShowAddDept(false)
+          }
+        } else {
+          const errorData = await response.json()
+          console.error('Error creating department:', errorData.error)
+        }
+      } catch (error) {
+        console.error('Error creating department:', error)
+      }
     }
   }
 
-  const totalPages = Math.ceil(allPeople.length / ITEMS_PER_PAGE)
+  const totalPages = Math.ceil(people.length / ITEMS_PER_PAGE)
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
   const endIndex = startIndex + ITEMS_PER_PAGE
-  const currentPeople = allPeople.slice(startIndex, endIndex)
+  const currentPeople = people.slice(startIndex, endIndex)
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -139,11 +171,21 @@ export default function People() {
             )}
 
             <div className="flex flex-wrap gap-2">
-              {organizationData?.departments.map((dept, index) => (
-                <div key={index} className="px-4 py-2 rounded-full bg-primary/20 text-primary text-sm font-medium">
-                  {dept}
+              {isLoadingDepartments ? (
+                <div className="px-4 py-2 bg-muted/20 rounded-full text-muted-foreground text-sm">
+                  Loading departments...
                 </div>
-              ))}
+              ) : departments.length > 0 ? (
+                departments.map((dept, index) => (
+                  <div key={index} className="px-4 py-2 rounded-full bg-primary/20 text-primary text-sm font-medium">
+                    {dept}
+                  </div>
+                ))
+              ) : (
+                <div className="px-4 py-2 bg-muted/20 rounded-full text-muted-foreground text-sm">
+                  No departments created yet
+                </div>
+              )}
             </div>
           </div>
 
@@ -199,7 +241,7 @@ export default function People() {
             {/* Pagination */}
             <div className="px-6 py-4 border-t border-white/10 flex items-center justify-between">
               <p className="text-sm text-muted-foreground">
-                Showing {startIndex + 1} to {Math.min(endIndex, allPeople.length)} of {allPeople.length} members
+                Showing {startIndex + 1} to {Math.min(endIndex, people.length)} of {people.length} members
               </p>
               <div className="flex items-center space-x-2">
                 <button

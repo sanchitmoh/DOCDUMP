@@ -1,0 +1,144 @@
+{
+  "description": "Storage Configuration Schema - JSON schema for storage configurations",
+  "type": "object",
+  "properties": {
+    "storage_type": {
+      "type": "string",
+      "enum": ["s3", "local", "hybrid"],
+      "description": "Primary storage type"
+    },
+    "s3_config": {
+      "type": "object",
+      "properties": {
+        "bucket_name": {
+          "type": "string",
+          "description": "S3 bucket name"
+        },
+        "region": {
+          "type": "string",
+          "description": "AWS region (e.g., us-east-1)"
+        },
+        "access_key_id": {
+          "type": "string",
+          "description": "AWS access key ID (encrypted in DB)"
+        },
+        "secret_access_key": {
+          "type": "string",
+          "description": "AWS secret access key (encrypted in DB)"
+        },
+        "endpoint_url": {
+          "type": "string",
+          "description": "Custom endpoint URL for S3-compatible services"
+        },
+        "use_path_style": {
+          "type": "boolean",
+          "description": "Use path-style URLs instead of virtual-hosted-style"
+        },
+        "encryption_type": {
+          "type": "string",
+          "enum": ["none", "AES256", "aws:kms"],
+          "description": "Server-side encryption type"
+        },
+        "kms_key_id": {
+          "type": "string",
+          "description": "KMS key ID for encryption"
+        },
+        "storage_class": {
+          "type": "string",
+          "enum": ["STANDARD", "STANDARD_IA", "ONEZONE_IA", "INTELLIGENT_TIERING", "GLACIER", "DEEP_ARCHIVE"],
+          "description": "Default S3 storage class"
+        }
+      },
+      "required": ["bucket_name", "region"]
+    },
+    "local_config": {
+      "type": "object",
+      "properties": {
+        "base_path": {
+          "type": "string",
+          "description": "Base directory path for local storage"
+        },
+        "backup_enabled": {
+          "type": "boolean",
+          "description": "Enable local backup"
+        },
+        "backup_path": {
+          "type": "string",
+          "description": "Backup directory path"
+        },
+        "backup_schedule": {
+          "type": "string",
+          "description": "Cron expression for backup schedule"
+        }
+      },
+      "required": ["base_path"]
+    },
+    "hybrid_config": {
+      "type": "object",
+      "properties": {
+        "primary_storage": {
+          "type": "string",
+          "enum": ["s3", "local"],
+          "description": "Primary storage location"
+        },
+        "sync_enabled": {
+          "type": "boolean",
+          "description": "Enable automatic synchronization"
+        },
+        "sync_interval_minutes": {
+          "type": "integer",
+          "description": "Sync interval in minutes"
+        },
+        "sync_direction": {
+          "type": "string",
+          "enum": ["bidirectional", "s3_to_local", "local_to_s3"],
+          "description": "Sync direction"
+        },
+        "conflict_resolution": {
+          "type": "string",
+          "enum": ["primary_wins", "newer_wins", "manual"],
+          "description": "Conflict resolution strategy"
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "properties": {
+        "max_file_size_bytes": {
+          "type": "integer",
+          "description": "Maximum file size in bytes"
+        },
+        "allowed_mime_types": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Allowed MIME types (null = all allowed)"
+        },
+        "storage_quota_bytes": {
+          "type": "integer",
+          "description": "Total storage quota in bytes"
+        }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "properties": {
+        "auto_delete_after_days": {
+          "type": "integer",
+          "description": "Auto-delete files after N days (null = never)"
+        },
+        "transition_to_glacier_days": {
+          "type": "integer",
+          "description": "Transition to Glacier after N days"
+        },
+        "transition_to_deep_archive_days": {
+          "type": "integer",
+          "description": "Transition to Deep Archive after N days"
+        }
+      }
+    }
+  },
+  "required": ["storage_type"]
+}
+

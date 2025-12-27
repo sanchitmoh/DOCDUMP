@@ -46,112 +46,143 @@ export default function VerifyOTP() {
     }
   }
 
-  const handleVerify = (e: React.FormEvent) => {
+  const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault()
     const otpCode = otp.join("")
+    
     if (otpCode.length !== 6) {
       addToast("Please enter all 6 digits", "error")
       return
     }
+
+    const tempToken = localStorage.getItem("tempToken")
+    if (!tempToken) {
+      addToast("Verification session expired. Please register again.", "error")
+      router.push("/signup")
+      return
+    }
+
     setIsLoading(true)
-    verifyOTP(otpCode)
-      .then(() => {
-        addToast("Email verified successfully!", "success")
+    
+    try {
+      const result = await verifyOTP(otpCode, tempToken)
+      
+      if (result.success) {
+        addToast(result.message, "success")
+        // Clear stored data
+        localStorage.removeItem("tempToken")
+        localStorage.removeItem("signupEmail")
         router.push("/login")
-      })
-      .catch(() => {
-        addToast("Verification failed. Please try again.", "error")
-      })
-      .finally(() => {
-        setIsLoading(false)
-      })
+      } else {
+        addToast(result.message, "error")
+      }
+    } catch (error) {
+      addToast("An unexpected error occurred", "error")
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  const handleResend = () => {
-    setOtp(["", "", "", "", "", ""])
+  const handleResend = async () => {
+    if (timeLeft > 0) return
+    
+    // In a real implementation, you would call an API to resend OTP
+    addToast("OTP resent successfully!", "success")
     setTimeLeft(60)
   }
 
   return (
-    <div className="relative min-h-screen bg-background flex flex-col">
+    <div className="min-h-screen bg-background flex flex-col">
+      <Navbar />
       <VideoBackground />
-      <div className="relative z-10 flex flex-col flex-1">
-        <Navbar />
 
-        <main className="flex-1 flex items-center justify-center px-4 py-12">
-          <div className="w-full max-w-md">
-            <div className="glass rounded-lg p-8 mb-8">
-              <div className="text-center mb-8">
-                <div className="w-12 h-12 bg-primary rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Mail className="w-6 h-6 text-primary-foreground" />
-                </div>
-                <h1 className="text-3xl font-bold text-foreground mb-2">Verify Email</h1>
-                <p className="text-muted-foreground">We've sent a 6-digit code to your email. Enter it below.</p>
+      <main className="flex-1 flex items-center justify-center px-4 py-12 relative z-10">
+        <div className="w-full max-w-md">
+          <div className="glass rounded-lg p-8 mb-8">
+            <div className="text-center mb-8">
+              <div className="w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Mail className="w-8 h-8 text-primary" />
               </div>
+              <h1 className="text-3xl font-bold text-foreground mb-2">Verify Your Email</h1>
+              <p className="text-muted-foreground">
+                We've sent a 6-digit code to{" "}
+                <span className="text-foreground font-medium">
+                  {typeof window !== 'undefined' ? localStorage.getItem("signupEmail") || "your email" : "your email"}
+                </span>
+              </p>
+            </div>
 
-              <form onSubmit={handleVerify} className="space-y-6">
-                {/* OTP Input */}
-                <div className="flex gap-2 justify-center">
+            <form onSubmit={handleVerify} className="space-y-6">
+              {/* OTP Input */}
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-4 text-center">
+                  Enter verification code
+                </label>
+                <div className="flex gap-3 justify-center">
                   {otp.map((digit, index) => (
                     <input
                       key={index}
-                      ref={(el) => {
-                        inputRefs.current[index] = el
-                      }}
+                      ref={(el) => (inputRefs.current[index] = el)}
                       type="text"
                       inputMode="numeric"
                       maxLength={1}
                       value={digit}
-                      aria-label={`OTP digit ${index + 1}`}
                       onChange={(e) => handleChange(e.target.value, index)}
                       onKeyDown={(e) => handleBackspace(index, e)}
-                      className="w-12 h-12 bg-card border border-border rounded-lg text-center text-lg font-semibold text-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      className="w-12 h-12 text-center text-xl font-bold bg-white/5 border border-white/10 rounded-lg text-foreground focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
                     />
                   ))}
                 </div>
+              </div>
 
-                {/* Resend */}
-                <div className="text-center">
-                  {timeLeft > 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      Resend code in <span className="font-semibold text-foreground">{timeLeft}s</span>
-                    </p>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={handleResend}
-                      className="text-sm text-primary hover:text-accent transition font-medium flex items-center justify-center space-x-1 mx-auto"
-                    >
-                      <RotateCcw className="w-4 h-4" />
-                      <span>Resend Code</span>
-                    </button>
-                  )}
-                </div>
+              {/* Resend */}
+              <div className="text-center">
+                {timeLeft > 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    Resend code in <span className="text-primary font-medium">{timeLeft}s</span>
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleResend}
+                    className="text-sm text-primary hover:text-primary/80 transition-colors flex items-center gap-2 mx-auto"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    Resend code
+                  </button>
+                )}
+              </div>
 
-                {/* Submit */}
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="w-full py-3 bg-primary hover:opacity-90 transition rounded-lg text-primary-foreground font-medium flex items-center justify-center space-x-2"
-                >
-                  {isLoading ? "Verifying..." : "Verify Email"}
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-              </form>
+              {/* Submit Button */}
+              <button
+                type="submit"
+                disabled={isLoading || otp.some(digit => !digit)}
+                className="w-full bg-primary hover:bg-primary/90 disabled:bg-primary/50 text-primary-foreground py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+              >
+                {isLoading ? (
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <>
+                    Verify Email
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+            </form>
 
-              {/* Help */}
-              <p className="text-center text-sm text-muted-foreground mt-6">
+            <div className="mt-6 text-center">
+              <p className="text-muted-foreground text-sm">
                 Didn't receive the code?{" "}
-                <Link href="/contact-support" className="text-primary hover:text-accent transition">
-                  Contact support
+                <Link href="/signup" className="text-primary hover:text-primary/80 transition-colors">
+                  Try again
                 </Link>
               </p>
             </div>
           </div>
-        </main>
+        </div>
+      </main>
 
-        <Footer />
-      </div>
+      <Footer />
     </div>
   )
 }

@@ -1,0 +1,375 @@
+{
+  "mappings": {
+    "properties": {
+      "file_id": {
+        "type": "long"
+      },
+      "organization_id": {
+        "type": "long"
+      },
+      "folder_id": {
+        "type": "long"
+      },
+      "name": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword"
+          },
+          "suggest": {
+            "type": "completion",
+            "preserve_separators": true,
+            "preserve_position_increments": true
+          }
+        },
+        "analyzer": "standard"
+      },
+      "description": {
+        "type": "text",
+        "analyzer": "standard"
+      },
+      "content": {
+        "type": "text",
+        "analyzer": "standard",
+        "fields": {
+          "raw": {
+            "type": "keyword"
+          }
+        }
+      },
+      "extracted_text": {
+        "type": "text",
+        "analyzer": "standard",
+        "store": true
+      },
+      "tags": {
+        "type": "keyword"
+      },
+      "department": {
+        "type": "keyword"
+      },
+      "mime_type": {
+        "type": "keyword"
+      },
+      "file_type": {
+        "type": "keyword"
+      },
+      "file_category": {
+        "type": "keyword"
+      },
+      "size_bytes": {
+        "type": "long"
+      },
+      "storage_mode": {
+        "type": "keyword"
+      },
+      "storage_provider": {
+        "type": "keyword"
+      },
+      "s3_bucket": {
+        "type": "keyword"
+      },
+      "s3_key": {
+        "type": "keyword"
+      },
+      "created_by": {
+        "type": "long"
+      },
+      "created_at": {
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis"
+      },
+      "updated_at": {
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis"
+      },
+      "visibility": {
+        "type": "keyword"
+      },
+      "is_active": {
+        "type": "boolean"
+      },
+      "is_deleted": {
+        "type": "boolean"
+      },
+      "checksum_sha256": {
+        "type": "keyword"
+      },
+      "ai_description": {
+        "type": "text",
+        "analyzer": "standard"
+      },
+      "ai_tags": {
+        "type": "keyword"
+      },
+      "ai_summary": {
+        "type": "text",
+        "analyzer": "standard"
+      },
+      "text_extraction": {
+        "properties": {
+          "status": {
+            "type": "keyword"
+          },
+          "extracted_at": {
+            "type": "date"
+          },
+          "method": {
+            "type": "keyword"
+          },
+          "language": {
+            "type": "keyword"
+          },
+          "page_count": {
+            "type": "integer"
+          },
+          "word_count": {
+            "type": "integer"
+          },
+          "character_count": {
+            "type": "integer"
+          }
+        }
+      },
+      "multimedia_metadata": {
+        "properties": {
+          "type": {
+            "type": "keyword"
+          },
+          "image": {
+            "properties": {
+              "width": {
+                "type": "integer"
+              },
+              "height": {
+                "type": "integer"
+              },
+              "color_space": {
+                "type": "keyword"
+              },
+              "dpi": {
+                "type": "float"
+              },
+              "orientation": {
+                "type": "keyword"
+              },
+              "has_transparency": {
+                "type": "boolean"
+              },
+              "exif": {
+                "type": "object",
+                "enabled": false
+              },
+              "dominant_colors": {
+                "type": "keyword"
+              },
+              "thumbnail_url": {
+                "type": "keyword"
+              }
+            }
+          },
+          "video": {
+            "properties": {
+              "duration_seconds": {
+                "type": "float"
+              },
+              "width": {
+                "type": "integer"
+              },
+              "height": {
+                "type": "integer"
+              },
+              "frame_rate": {
+                "type": "float"
+              },
+              "bitrate": {
+                "type": "integer"
+              },
+              "codec": {
+                "type": "keyword"
+              },
+              "audio_codec": {
+                "type": "keyword"
+              },
+              "has_audio": {
+                "type": "boolean"
+              },
+              "has_subtitles": {
+                "type": "boolean"
+              },
+              "thumbnail_url": {
+                "type": "keyword"
+              },
+              "preview_url": {
+                "type": "keyword"
+              }
+            }
+          },
+          "audio": {
+            "properties": {
+              "duration_seconds": {
+                "type": "float"
+              },
+              "bitrate": {
+                "type": "integer"
+              },
+              "sample_rate": {
+                "type": "integer"
+              },
+              "channels": {
+                "type": "integer"
+              },
+              "codec": {
+                "type": "keyword"
+              },
+              "bit_depth": {
+                "type": "integer"
+              },
+              "has_metadata": {
+                "type": "boolean"
+              },
+              "artist": {
+                "type": "text",
+                "fields": {
+                  "keyword": {
+                    "type": "keyword"
+                  }
+                }
+              },
+              "album": {
+                "type": "text",
+                "fields": {
+                  "keyword": {
+                    "type": "keyword"
+                  }
+                }
+              },
+              "title": {
+                "type": "text",
+                "fields": {
+                  "keyword": {
+                    "type": "keyword"
+                  }
+                }
+              },
+              "genre": {
+                "type": "keyword"
+              },
+              "year": {
+                "type": "integer"
+              }
+            }
+          },
+          "document": {
+            "properties": {
+              "page_count": {
+                "type": "integer"
+              },
+              "word_count": {
+                "type": "integer"
+              },
+              "character_count": {
+                "type": "integer"
+              },
+              "has_images": {
+                "type": "boolean"
+              },
+              "has_tables": {
+                "type": "boolean"
+              },
+              "has_forms": {
+                "type": "boolean"
+              },
+              "is_encrypted": {
+                "type": "boolean"
+              },
+              "is_password_protected": {
+                "type": "boolean"
+              },
+              "pdf_version": {
+                "type": "keyword"
+              },
+              "author": {
+                "type": "text",
+                "fields": {
+                  "keyword": {
+                    "type": "keyword"
+                  }
+                }
+              },
+              "creator": {
+                "type": "text",
+                "fields": {
+                  "keyword": {
+                    "type": "keyword"
+                  }
+                }
+              },
+              "producer": {
+                "type": "text"
+              },
+              "created_date": {
+                "type": "date"
+              },
+              "modified_date": {
+                "type": "date"
+              }
+            }
+          }
+        }
+      },
+      "ocr_data": {
+        "properties": {
+          "has_ocr": {
+            "type": "boolean"
+          },
+          "ocr_text": {
+            "type": "text",
+            "analyzer": "standard"
+          },
+          "ocr_confidence": {
+            "type": "float"
+          },
+          "ocr_language": {
+            "type": "keyword"
+          },
+          "ocr_engine": {
+            "type": "keyword"
+          }
+        }
+      },
+      "full_text_searchable": {
+        "type": "boolean"
+      },
+      "indexed_at": {
+        "type": "date"
+      },
+      "index_version": {
+        "type": "integer"
+      }
+    }
+  },
+  "settings": {
+    "number_of_shards": 3,
+    "number_of_replicas": 1,
+    "analysis": {
+      "analyzer": {
+        "file_content_analyzer": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "stop",
+            "snowball"
+          ]
+        }
+      }
+    },
+    "index": {
+      "max_result_window": 50000,
+      "refresh_interval": "30s"
+    }
+  }
+}
+
+

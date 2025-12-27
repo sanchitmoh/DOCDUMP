@@ -14,10 +14,12 @@ export function Navbar({ currentPage }: NavbarProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [showPageHover, setShowPageHover] = useState(false)
-  const { isAuthenticated, userEmail, logout, userType } = useAuth()
+  const { isAuthenticated, user, logout } = useAuth()
   const pathname = usePathname()
 
   const getCurrentPageName = () => {
+    if (pathname.includes("admin/profile")) return "Admin Profile"
+    if (pathname.includes("admin") && !pathname.includes("analytics") && !pathname.includes("people")) return "Admin Dashboard"
     if (pathname.includes("dashboard")) return "Dashboard"
     if (pathname.includes("library")) return "Library"
     if (pathname.includes("saved")) return "Saved Documents"
@@ -57,25 +59,40 @@ export function Navbar({ currentPage }: NavbarProps) {
           {/* Desktop Menu */}
           {isAuthenticated && (
             <div className="hidden md:flex items-center space-x-8">
-              <Link href="/dashboard" className={getNavLinkClass("/dashboard")}>
-                Dashboard
-              </Link>
-              <Link href="/library" className={getNavLinkClass("/library")}>
-                Library
-              </Link>
-              <Link href="/saved-documents" className={getNavLinkClass("/saved-documents")}>
-                Saved
-              </Link>
-              <Link href="/your-contributions" className={getNavLinkClass("/your-contributions")}>
-                Contributions
-              </Link>
-              {userType === "organization" && (
+              {user?.type === "organization" ? (
                 <>
+                  <Link href="/admin" className={getNavLinkClass("/admin")}>
+                    Admin Dashboard
+                  </Link>
                   <Link href="/admin/analytics" className={getNavLinkClass("/admin/analytics")}>
                     Analytics
                   </Link>
                   <Link href="/admin/people" className={getNavLinkClass("/admin/people")}>
                     People
+                  </Link>
+                  <Link href="/library" className={getNavLinkClass("/library")}>
+                    Library
+                  </Link>
+                  <Link href="/saved-documents" className={getNavLinkClass("/saved-documents")}>
+                    Saved
+                  </Link>
+                  <Link href="/your-contributions" className={getNavLinkClass("/your-contributions")}>
+                    Contributions
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <Link href="/dashboard" className={getNavLinkClass("/dashboard")}>
+                    Dashboard
+                  </Link>
+                  <Link href="/library" className={getNavLinkClass("/library")}>
+                    Library
+                  </Link>
+                  <Link href="/saved-documents" className={getNavLinkClass("/saved-documents")}>
+                    Saved
+                  </Link>
+                  <Link href="/your-contributions" className={getNavLinkClass("/your-contributions")}>
+                    Contributions
                   </Link>
                 </>
               )}
@@ -90,7 +107,7 @@ export function Navbar({ currentPage }: NavbarProps) {
                 onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
                 className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold hover:opacity-90 transition"
               >
-                {isAuthenticated ? userEmail?.[0]?.toUpperCase() : "?"}
+                {isAuthenticated ? user?.email?.[0]?.toUpperCase() : "?"}
               </button>
 
               {isUserMenuOpen && (
@@ -109,10 +126,21 @@ export function Navbar({ currentPage }: NavbarProps) {
                     </>
                   ) : (
                     <>
-                      <div className="px-4 py-2 text-sm text-muted-foreground border-b border-border">{userEmail}</div>
-                      <Link href="/profile" className="block px-4 py-2 text-foreground hover:bg-secondary transition">
-                        Profile
-                      </Link>
+                      <div className="px-4 py-2 text-sm text-muted-foreground border-b border-border">
+                        {user?.email}
+                        {user?.type === "organization" && (
+                          <div className="text-xs text-primary mt-1">Organization Admin</div>
+                        )}
+                      </div>
+                      {user?.type === "organization" ? (
+                        <Link href="/admin/profile" className="block px-4 py-2 text-foreground hover:bg-secondary transition">
+                          Admin Profile
+                        </Link>
+                      ) : (
+                        <Link href="/profile" className="block px-4 py-2 text-foreground hover:bg-secondary transition">
+                          Profile
+                        </Link>
+                      )}
                       <Link
                         href="/change-password"
                         className="block px-4 py-2 text-foreground hover:bg-secondary transition"
@@ -147,29 +175,14 @@ export function Navbar({ currentPage }: NavbarProps) {
           <div className="md:hidden pb-4 space-y-2">
             {isAuthenticated && (
               <>
-                <Link
-                  href="/dashboard"
-                  className="block px-4 py-2 text-foreground hover:bg-secondary rounded transition"
-                >
-                  Dashboard
-                </Link>
-                <Link href="/library" className="block px-4 py-2 text-foreground hover:bg-secondary rounded transition">
-                  Library
-                </Link>
-                <Link
-                  href="/saved-documents"
-                  className="block px-4 py-2 text-foreground hover:bg-secondary rounded transition"
-                >
-                  Saved Documents
-                </Link>
-                <Link
-                  href="/your-contributions"
-                  className="block px-4 py-2 text-foreground hover:bg-secondary rounded transition"
-                >
-                  Your Contributions
-                </Link>
-                {userType === "organization" && (
+                {user?.type === "organization" ? (
                   <>
+                    <Link
+                      href="/admin"
+                      className="block px-4 py-2 text-foreground hover:bg-secondary rounded transition"
+                    >
+                      Admin Dashboard
+                    </Link>
                     <Link
                       href="/admin/analytics"
                       className="block px-4 py-2 text-foreground hover:bg-secondary rounded transition"
@@ -182,11 +195,56 @@ export function Navbar({ currentPage }: NavbarProps) {
                     >
                       People
                     </Link>
+                    <Link href="/library" className="block px-4 py-2 text-foreground hover:bg-secondary rounded transition">
+                      Library
+                    </Link>
+                    <Link
+                      href="/saved-documents"
+                      className="block px-4 py-2 text-foreground hover:bg-secondary rounded transition"
+                    >
+                      Saved Documents
+                    </Link>
+                    <Link
+                      href="/your-contributions"
+                      className="block px-4 py-2 text-foreground hover:bg-secondary rounded transition"
+                    >
+                      Your Contributions
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    <Link
+                      href="/dashboard"
+                      className="block px-4 py-2 text-foreground hover:bg-secondary rounded transition"
+                    >
+                      Dashboard
+                    </Link>
+                    <Link href="/library" className="block px-4 py-2 text-foreground hover:bg-secondary rounded transition">
+                      Library
+                    </Link>
+                    <Link
+                      href="/saved-documents"
+                      className="block px-4 py-2 text-foreground hover:bg-secondary rounded transition"
+                    >
+                      Saved Documents
+                    </Link>
+                    <Link
+                      href="/your-contributions"
+                      className="block px-4 py-2 text-foreground hover:bg-secondary rounded transition"
+                    >
+                      Your Contributions
+                    </Link>
                   </>
                 )}
-                <Link href="/profile" className="block px-4 py-2 text-foreground hover:bg-secondary rounded transition">
-                  Profile
-                </Link>
+                {user?.type === "organization" ? (
+                  <Link href="/admin/profile" className="block px-4 py-2 text-foreground hover:bg-secondary rounded transition">
+                    Admin Profile
+                  </Link>
+                ) : (
+                  <Link href="/profile" className="block px-4 py-2 text-foreground hover:bg-secondary rounded transition">
+                    Profile
+                  </Link>
+                )}
                 <Link
                   href="/change-password"
                   className="block px-4 py-2 text-foreground hover:bg-secondary rounded transition"
