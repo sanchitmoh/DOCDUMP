@@ -2,75 +2,31 @@
 
 import { Navbar } from "@/components/navbar"
 import { Footer } from "@/components/footer"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Search, Eye, Edit2, Trash2, Upload, BarChart3, Save, FileText } from "lucide-react"
 import { useAuth } from "@/context/auth-context"
 import Link from "next/link"
 
-const contributionsData = [
-  {
-    id: 1,
-    title: "Team Meeting Notes - Nov 2024",
-    date: "2024-11-10",
-    status: "published",
-    views: 45,
-    downloads: 12,
-    department: "Engineering",
-    type: "PDF",
-    tags: ["meeting", "notes", "team"],
-  },
-  {
-    id: 2,
-    title: "Project Proposal Draft",
-    date: "2024-11-05",
-    status: "draft",
-    views: 0,
-    downloads: 0,
-    department: "Product",
-    type: "DOCX",
-    tags: ["proposal", "draft"],
-  },
-  {
-    id: 3,
-    title: "Q4 Performance Summary",
-    date: "2024-11-12",
-    status: "published",
-    views: 89,
-    downloads: 23,
-    department: "HR",
-    type: "PPTX",
-    tags: ["performance", "summary", "Q4"],
-  },
-  {
-    id: 4,
-    title: "Budget Allocation Plan 2025",
-    date: "2024-11-08",
-    status: "published",
-    views: 156,
-    downloads: 42,
-    department: "Finance",
-    type: "PDF",
-    tags: ["budget", "allocation", "2025"],
-  },
-  {
-    id: 5,
-    title: "API Documentation v2.0",
-    date: "2024-11-14",
-    status: "published",
-    views: 234,
-    downloads: 67,
-    department: "Engineering",
-    type: "DOCX",
-    tags: ["API", "documentation", "v2.0"],
-  },
-]
+interface Contribution {
+  id: number
+  title: string
+  date: string
+  status: string
+  views: number
+  downloads: number
+  department: string
+  type: string
+  tags: string[]
+  author: string
+}
 
 export default function YourContributions() {
   const { isAuthenticated, user } = useAuth()
   const [searchQuery, setSearchQuery] = useState("")
   const [filterStatus, setFilterStatus] = useState("All")
-  const [contributions, setContributions] = useState(contributionsData)
-  const [editingDoc, setEditingDoc] = useState<any>(null)
+  const [contributions, setContributions] = useState<Contribution[]>([])
+  const [loading, setLoading] = useState(true)
+  const [editingDoc, setEditingDoc] = useState<Contribution | null>(null)
   const [editFormData, setEditFormData] = useState({
     title: "",
     description: "",
@@ -79,17 +35,60 @@ export default function YourContributions() {
     status: "published",
   })
 
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchContributions()
+    }
+  }, [isAuthenticated])
+
+  const fetchContributions = async () => {
+    try {
+      setLoading(true)
+      const response = await fetch('/api/contributions', {
+        credentials: 'include'
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setContributions(data.contributions || [])
+      } else {
+        console.error('Failed to fetch contributions')
+      }
+    } catch (error) {
+      console.error('Error fetching contributions:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const filteredContributions = contributions.filter(
     (doc) =>
       doc.title.toLowerCase().includes(searchQuery.toLowerCase()) &&
       (filterStatus === "All" || doc.status === filterStatus),
   )
 
-  const deleteContribution = (id: number) => {
-    setContributions(contributions.filter((doc) => doc.id !== id))
+  const deleteContribution = async (id: number) => {
+    try {
+      const response = await fetch('/api/contributions', {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ fileId: id })
+      })
+
+      if (response.ok) {
+        setContributions(contributions.filter((doc) => doc.id !== id))
+      } else {
+        console.error('Failed to delete contribution')
+      }
+    } catch (error) {
+      console.error('Error deleting contribution:', error)
+    }
   }
 
-  const handleEditClick = (doc: any) => {
+  const handleEditClick = (doc: Contribution) => {
     setEditingDoc(doc)
     setEditFormData({
       title: doc.title,
@@ -100,22 +99,46 @@ export default function YourContributions() {
     })
   }
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (editingDoc && editFormData.title.trim()) {
-      setContributions(
-        contributions.map((doc) =>
-          doc.id === editingDoc.id
-            ? {
-                ...doc,
-                title: editFormData.title,
-                tags: editFormData.tags.split(",").map((t) => t.trim()),
-                department: editFormData.department,
-                status: editFormData.status,
-              }
-            : doc,
-        ),
-      )
-      setEditingDoc(null)
+      try {
+        const response = await fetch('/api/contributions', {
+          method: 'PUT',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            fileId: editingDoc.id,
+            title: editFormData.title,
+            description: editFormData.description,
+            tags: editFormData.tags,
+            department: editFormData.department,
+            status: editFormData.status
+          })
+        })
+
+        if (response.ok) {
+          setContributions(
+            contributions.map((doc) =>
+              doc.id === editingDoc.id
+                ? {
+                    ...doc,
+                    title: editFormData.title,
+                    tags: editFormData.tags.split(",").map((t) => t.trim()),
+                    department: editFormData.department,
+                    status: editFormData.status,
+                  }
+                : doc,
+            ),
+          )
+          setEditingDoc(null)
+        } else {
+          console.error('Failed to update contribution')
+        }
+      } catch (error) {
+        console.error('Error updating contribution:', error)
+      }
     }
   }
 
@@ -149,52 +172,63 @@ export default function YourContributions() {
             <p className="text-muted-foreground">
               {user?.type === "organization"
                 ? "Documents uploaded by your organization"
-                : `Documents you have contributed as ${user?.email}`}
+                : `Documents you have contributed as ${user?.full_name || user?.email}`}
             </p>
           </div>
 
           {/* Stats Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-            <div className="glass rounded-lg p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">Total Contributions</p>
-                  <p className="text-2xl font-bold text-foreground">{contributions.length}</p>
+          {loading ? (
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="glass rounded-lg p-6 animate-pulse">
+                  <div className="h-4 bg-muted rounded w-1/2 mb-2"></div>
+                  <div className="h-8 bg-muted rounded w-1/3"></div>
                 </div>
-                <Upload className="w-8 h-8 text-primary/50" />
-              </div>
+              ))}
             </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+              <div className="glass rounded-lg p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground mb-1">Total Contributions</p>
+                    <p className="text-2xl font-bold text-foreground">{contributions.length}</p>
+                  </div>
+                  <Upload className="w-8 h-8 text-primary/50" />
+                </div>
+              </div>
 
-            <div className="glass rounded-lg p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">Published</p>
-                  <p className="text-2xl font-bold text-foreground">{publishedCount}</p>
+              <div className="glass rounded-lg p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground mb-1">Published</p>
+                    <p className="text-2xl font-bold text-foreground">{publishedCount}</p>
+                  </div>
+                  <span className="text-xl text-green-500/50">✓</span>
                 </div>
-                <span className="text-xl text-green-500/50">✓</span>
               </div>
-            </div>
 
-            <div className="glass rounded-lg p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">Total Views</p>
-                  <p className="text-2xl font-bold text-foreground">{totalViews}</p>
+              <div className="glass rounded-lg p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground mb-1">Total Views</p>
+                    <p className="text-2xl font-bold text-foreground">{totalViews.toLocaleString()}</p>
+                  </div>
+                  <Eye className="w-8 h-8 text-blue-500/50" />
                 </div>
-                <Eye className="w-8 h-8 text-blue-500/50" />
               </div>
-            </div>
 
-            <div className="glass rounded-lg p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">Total Downloads</p>
-                  <p className="text-2xl font-bold text-foreground">{totalDownloads}</p>
+              <div className="glass rounded-lg p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground mb-1">Total Downloads</p>
+                    <p className="text-2xl font-bold text-foreground">{totalDownloads.toLocaleString()}</p>
+                  </div>
+                  <BarChart3 className="w-8 h-8 text-cyan-500/50" />
                 </div>
-                <BarChart3 className="w-8 h-8 text-cyan-500/50" />
               </div>
             </div>
-          </div>
+          )}
 
           {/* Filters */}
           <div className="mb-8 space-y-4">
@@ -229,90 +263,106 @@ export default function YourContributions() {
           </div>
 
           {/* Contributions List */}
-          <div className="space-y-3">
-            {filteredContributions.length > 0 ? (
-              filteredContributions.map((doc) => (
-                <div key={doc.id} className="glass glow-hover p-4 rounded-lg">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-1">
-                        <h3 className="font-medium text-foreground hover:text-primary transition cursor-pointer">
-                          {doc.title}
-                        </h3>
-                        <span
-                          className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${
-                            doc.status === "published"
-                              ? "bg-green-500/20 text-green-400"
-                              : "bg-yellow-500/20 text-yellow-400"
-                          }`}
-                        >
-                          {doc.status}
-                        </span>
-                      </div>
-                      <div className="flex items-center space-x-4 text-xs text-muted-foreground mt-2 flex-wrap">
-                        <span>{doc.date}</span>
-                        <span className="px-2 py-1 bg-primary/10 text-primary/80 rounded">{doc.department}</span>
-                        <span className="px-2 py-1 bg-secondary rounded">{doc.type}</span>
-                        <span className="px-2 py-1 bg-accent rounded">
-                          {doc.tags?.map((tag: string) => (
-                            <span key={tag} className="mr-1">
-                              #{tag}
-                            </span>
-                          ))}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center space-x-4 text-sm">
-                      <div className="text-right hidden md:block">
-                        <p className="text-muted-foreground text-xs">Views</p>
-                        <p className="font-semibold text-foreground">{doc.views}</p>
-                      </div>
-                      <div className="text-right hidden md:block">
-                        <p className="text-muted-foreground text-xs">Downloads</p>
-                        <p className="font-semibold text-foreground">{doc.downloads}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-2 mt-4 pt-4 border-t border-border">
-                    <button
-                      onClick={() => handleEditClick(doc)}
-                      className="p-2 hover:bg-secondary rounded-lg transition text-muted-foreground hover:text-primary"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => deleteContribution(doc.id)}
-                      className="p-2 hover:bg-secondary rounded-lg transition text-muted-foreground hover:text-destructive"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                    <Link
-                      href={`/document/${doc.id}`}
-                      className="ml-auto text-sm text-primary hover:text-accent transition font-medium"
-                    >
-                      View Details
-                    </Link>
-                  </div>
+          {loading ? (
+            <div className="space-y-3">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="glass p-4 rounded-lg animate-pulse">
+                  <div className="h-4 bg-muted rounded w-3/4 mb-2"></div>
+                  <div className="h-3 bg-muted rounded w-1/2 mb-2"></div>
+                  <div className="h-3 bg-muted rounded w-1/4"></div>
                 </div>
-              ))
-            ) : (
-              <div className="text-center py-12">
-                <Upload className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
-                <p className="text-muted-foreground">No contributions found</p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Start uploading documents to share with your organization
-                </p>
-                <Link
-                  href="/upload"
-                  className="inline-block mt-4 px-6 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition font-medium"
-                >
-                  Upload Document
-                </Link>
-              </div>
-            )}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredContributions.length > 0 ? (
+                filteredContributions.map((doc) => (
+                  <div key={doc.id} className="glass glow-hover p-4 rounded-lg">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-1">
+                          <h3 className="font-medium text-foreground hover:text-primary transition cursor-pointer">
+                            {doc.title}
+                          </h3>
+                          <span
+                            className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${
+                              doc.status === "published"
+                                ? "bg-green-500/20 text-green-400"
+                                : "bg-yellow-500/20 text-yellow-400"
+                            }`}
+                          >
+                            {doc.status}
+                          </span>
+                        </div>
+                        <div className="flex items-center space-x-4 text-xs text-muted-foreground mt-2 flex-wrap">
+                          <span>{new Date(doc.date).toLocaleDateString()}</span>
+                          {doc.department && (
+                            <span className="px-2 py-1 bg-primary/10 text-primary/80 rounded">{doc.department}</span>
+                          )}
+                          <span className="px-2 py-1 bg-secondary rounded">{doc.type}</span>
+                          {doc.tags && doc.tags.length > 0 && (
+                            <span className="px-2 py-1 bg-accent rounded">
+                              {doc.tags.map((tag: string) => (
+                                <span key={tag} className="mr-1">
+                                  #{tag}
+                                </span>
+                              ))}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-4 text-sm">
+                        <div className="text-right hidden md:block">
+                          <p className="text-muted-foreground text-xs">Views</p>
+                          <p className="font-semibold text-foreground">{doc.views}</p>
+                        </div>
+                        <div className="text-right hidden md:block">
+                          <p className="text-muted-foreground text-xs">Downloads</p>
+                          <p className="font-semibold text-foreground">{doc.downloads}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-2 mt-4 pt-4 border-t border-border">
+                      <button
+                        onClick={() => handleEditClick(doc)}
+                        className="p-2 hover:bg-secondary rounded-lg transition text-muted-foreground hover:text-primary"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => deleteContribution(doc.id)}
+                        className="p-2 hover:bg-secondary rounded-lg transition text-muted-foreground hover:text-destructive"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                      <Link
+                        href={`/document/${doc.id}`}
+                        className="ml-auto text-sm text-primary hover:text-accent transition font-medium"
+                      >
+                        View Details
+                      </Link>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-12">
+                  <Upload className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
+                  <p className="text-muted-foreground">No contributions found</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Start uploading documents to share with your organization
+                  </p>
+                  <Link
+                    href="/upload"
+                    className="inline-block mt-4 px-6 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition font-medium"
+                  >
+                    Upload Document
+                  </Link>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Edit Form Modal */}
           {editingDoc && (

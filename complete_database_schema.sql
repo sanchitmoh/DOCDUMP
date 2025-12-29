@@ -1167,3 +1167,11 @@ ON text_extraction_jobs(file_id, status);
 
 ALTER TABLE presigned_url_cache
 ADD UNIQUE KEY uq_presigned_active (file_id, url_type, expires_at);
+
+
+ALTER TABLE organization_employees
+  DROP COLUMN department,
+  ADD COLUMN department_id BIGINT NULL,
+  ADD CONSTRAINT fk_emp_department
+    FOREIGN KEY (department_id) REFERENCES departments(id)
+    ON DELETE SET NULL;

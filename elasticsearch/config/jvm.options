@@ -1,0 +1,98 @@
+## JVM configuration for Corporate Digital Library Elasticsearch
+
+################################################################
+## IMPORTANT: JVM heap size
+################################################################
+##
+## The heap size is automatically configured by Elasticsearch
+## based on the available memory in your system and the roles
+## each node is configured to fulfill. If specifying heap is
+## required, it should be done through a file in jvm.options.d,
+## which should be created with the exact JVM options needed,
+## rather than modifying this file.
+##
+## See https://www.elastic.co/guide/en/elasticsearch/reference/current/jvm-options.html
+## for more information
+##
+################################################################
+
+# Xms represents the initial size of total heap space
+# Xmx represents the maximum size of total heap space
+
+-Xms2g
+-Xmx2g
+
+################################################################
+## Expert settings
+################################################################
+##
+## All settings below this section are considered
+## expert settings. Don't tamper with them unless
+## you understand what you are doing
+##
+################################################################
+
+## GC configuration
+8-13:-XX:+UseConcMarkSweepGC
+8-13:-XX:CMSInitiatingOccupancyFraction=75
+8-13:-XX:+UseCMSInitiatingOccupancyOnly
+
+## G1GC Configuration
+14-:-XX:+UseG1GC
+
+## JVM temporary directory
+-Djava.io.tmpdir=${ES_TMPDIR}
+
+## heap dumps
+
+# generate a heap dump when an allocation from the Java heap fails; heap dumps
+# are created in the working directory of the JVM unless an alternative path is
+# specified
+-XX:+HeapDumpOnOutOfMemoryError
+
+# specify an alternative path for heap dumps; ensure the directory exists and
+# has sufficient space
+-XX:HeapDumpPath=data
+
+# specify an alternative path for JVM fatal error logs
+-XX:ErrorFile=logs/hs_err_pid%p.log
+
+## JDK 8 GC logging
+8:-XX:+PrintGCDetails
+8:-XX:+PrintGCDateStamps
+8:-XX:+PrintTenuringDistribution
+8:-XX:+PrintGCApplicationStoppedTime
+8:-Xloggc:logs/gc.log
+8:-XX:+UseGCLogFileRotation
+8:-XX:NumberOfGCLogFiles=32
+8:-XX:GCLogFileSize=64m
+
+# JDK 9+ GC logging
+9-:-Xlog:gc*,gc+age=trace,safepoint:logs/gc.log:utctime,pid,tags:filecount=32,filesize=64m
+
+## JDK 11 and above
+11-:-XX:+UnlockExperimentalVMOptions
+11-:-XX:+UseEpsilonGC
+
+## Corporate Digital Library specific JVM options
+
+# Optimize for search performance
+-XX:+UseStringDeduplication
+-XX:+OptimizeStringConcat
+
+# Security settings
+-Djava.security.policy=all.policy
+-Dfile.encoding=UTF-8
+
+# Network settings
+-Djava.net.preferIPv4Stack=true
+
+# Performance tuning
+-XX:+UseCompressedOops
+-XX:+UseCompressedClassPointers
+
+# Memory management
+-XX:MaxDirectMemorySize=1g
+
+# Logging
+-Dlog4j2.disable.jmx=true

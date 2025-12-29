@@ -4,7 +4,7 @@ import type React from "react"
 
 import Link from "next/link"
 import { useState, useEffect, useRef } from "react"
-import { Mail, Lock, User, Building2, ArrowRight, CheckCircle2, AlertCircle } from "lucide-react"
+import { Mail, Lock, User, Building2, ArrowRight, CheckCircle2, AlertCircle, Eye, EyeOff } from "lucide-react"
 import { useAuth } from "@/context/auth-context"
 import { useToast } from "@/hooks/use-toast"
 import { Captcha } from "@/components/captcha"
@@ -24,6 +24,8 @@ export default function OrganizationSignup() {
     confirmPassword: "",
     organizationName: "",
   })
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [emailStatus, setEmailStatus] = useState<"idle" | "checking" | "available" | "taken">("idle")
   const [emailSuggestions, setEmailSuggestions] = useState<string[]>([])
   const [captchaToken, setCaptchaToken] = useState("")
@@ -348,13 +350,20 @@ export default function OrganizationSignup() {
                 <div className={inputWrapperClass}>
                   <Lock className="w-5 h-5 text-cyan-400/70 transition group-focus-within:text-cyan-300" />
                   <input
-                    type="password"
+                    type={showPassword ? "text" : "password"}
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                     placeholder="••••••••"
                     className={textInputClass}
                     required
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="text-cyan-400/70 hover:text-cyan-300 transition-colors"
+                  >
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
                 </div>
                 <p className="text-xs text-muted-foreground mt-2">Minimum 8 characters</p>
               </div>
@@ -365,13 +374,20 @@ export default function OrganizationSignup() {
                 <div className={inputWrapperClass}>
                   <Lock className="w-5 h-5 text-cyan-400/70 transition group-focus-within:text-cyan-300" />
                   <input
-                    type="password"
+                    type={showConfirmPassword ? "text" : "password"}
                     value={formData.confirmPassword}
                     onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
                     placeholder="••••••••"
                     className={textInputClass}
                     required
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="text-cyan-400/70 hover:text-cyan-300 transition-colors"
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
                 </div>
               </div>
 

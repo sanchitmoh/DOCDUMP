@@ -4,42 +4,81 @@ import { Navbar } from "@/components/navbar"
 import { Footer } from "@/components/footer"
 import { Clock, BookmarkCheck, Upload, Download, Eye, Star, ArrowRight, Search, X } from "lucide-react"
 import Link from "next/link"
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useAuth } from "@/context/auth-context"
 
-const recentlyViewed = [
-  { id: 1, title: "Q4 Financial Report", author: "Finance", date: "2024-11-15", views: 120 },
-  { id: 2, title: "Company Culture Guide", author: "HR", date: "2024-11-10", views: 89 },
-  { id: 3, title: "Engineering Best Practices", author: "Tech", date: "2024-11-08", views: 65 },
-]
+interface DashboardStats {
+  totalViews: number
+  savedDocuments: number
+  contributions: number
+  totalDownloads: number
+}
 
-const savedDocuments = [
-  { id: 1, title: "Product Roadmap 2025", author: "Product", date: "2024-11-12" },
-  { id: 2, title: "Marketing Strategy Q4", author: "Marketing", date: "2024-11-14" },
-]
-
-const contributions = [
-  { id: 1, title: "Team Meeting Notes - Nov 2024", date: "2024-11-10", status: "published", views: 45 },
-  { id: 2, title: "Project Proposal Draft", date: "2024-11-05", status: "draft", views: 0 },
-]
+interface RecentDocument {
+  id: number
+  title: string
+  author: string
+  date: string
+  views: number
+  department?: string
+}
 
 export default function Dashboard() {
+  const { user } = useAuth()
   const [searchQuery, setSearchQuery] = useState("")
   const [filters, setFilters] = useState({
-    searchBy: "all", // all, name, author, department, tags, content
+    searchBy: "all",
     docType: "all",
     sortBy: "recent",
   })
   const [showFilters, setShowFilters] = useState(false)
+  const [stats, setStats] = useState<DashboardStats>({
+    totalViews: 0,
+    savedDocuments: 0,
+    contributions: 0,
+    totalDownloads: 0
+  })
+  const [recentlyViewed, setRecentlyViewed] = useState<RecentDocument[]>([])
+  const [loading, setLoading] = useState(true)
 
-  // Mock search function - in real app this would filter from API
-  const allDocuments = [
-    ...recentlyViewed.map((doc) => ({ ...doc, category: "recently-viewed" })),
-    ...savedDocuments.map((doc) => ({ ...doc, category: "saved" })),
-    ...contributions.map((doc) => ({ ...doc, category: "contributions" })),
-  ]
+  useEffect(() => {
+    if (user) {
+      fetchDashboardData()
+    }
+  }, [user])
+
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true)
+      
+      // Fetch stats and recent documents in parallel
+      const [statsResponse, recentResponse] = await Promise.all([
+        fetch('/api/dashboard/stats', {
+          credentials: 'include'
+        }),
+        fetch('/api/dashboard/recent', {
+          credentials: 'include'
+        })
+      ])
+
+      if (statsResponse.ok) {
+        const statsData = await statsResponse.json()
+        setStats(statsData.stats)
+      }
+
+      if (recentResponse.ok) {
+        const recentData = await recentResponse.json()
+        setRecentlyViewed(recentData.recentlyViewed || [])
+      }
+    } catch (error) {
+      console.error('Failed to fetch dashboard data:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const searchResults = searchQuery
-    ? allDocuments.filter((doc) => {
+    ? recentlyViewed.filter((doc) => {
         const matchesSearch =
           doc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
           doc.author?.toLowerCase().includes(searchQuery.toLowerCase())
@@ -57,9 +96,23 @@ export default function Dashboard() {
     ? recentlyViewed.filter(
         (doc) =>
           doc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          doc.author.toLowerCase().includes(searchQuery.toLowerCase()),
+          doc.author?.toLowerCase().includes(searchQuery.toLowerCase()),
       )
     : recentlyViewed
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col">
+        <Navbar currentPage="dashboard" />
+        <main className="flex-1 px-4 py-8 flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-muted-foreground mb-4">Please login to view your dashboard</p>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -69,7 +122,9 @@ export default function Dashboard() {
         <div className="max-w-7xl mx-auto">
           {/* Header */}
           <div className="mb-8">
-            <h1 className="text-3xl font-bold text-foreground mb-2">Welcome Back, John!</h1>
+            <h1 className="text-3xl font-bold text-foreground mb-2">
+              Welcome Back, {user.name || user.email}!
+            </h1>
             <p className="text-muted-foreground">Here's what's happening in your library</p>
           </div>
 
@@ -170,7 +225,7 @@ export default function Dashboard() {
               <div className="space-y-3">
                 {searchResults.map((doc) => (
                   <Link
-                    key={`${doc.category}-${doc.id}`}
+                    key={doc.id}
                     href={`/document/${doc.id}`}
                     className="glass glow-hover p-4 rounded-lg flex items-center justify-between group"
                   >
@@ -178,24 +233,17 @@ export default function Dashboard() {
                       <div className="flex items-center gap-2">
                         <h3 className="font-medium text-foreground group-hover:text-primary transition">{doc.title}</h3>
                         <span className="text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary">
-                          {doc.category === "recently-viewed"
-                            ? "Viewed"
-                            : doc.category === "saved"
-                              ? "Saved"
-                              : "Contributed"}
+                          Recently Viewed
                         </span>
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">
-                        {doc.author} • {doc.date}
+                        {doc.author} • {new Date(doc.date).toLocaleDateString()}
+                        {doc.department && ` • ${doc.department}`}
                       </p>
                     </div>
                     <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-                      {doc.views !== undefined && (
-                        <>
-                          <Eye className="w-4 h-4" />
-                          <span>{doc.views}</span>
-                        </>
-                      )}
+                      <Eye className="w-4 h-4" />
+                      <span>{doc.views}</span>
                       <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition" />
                     </div>
                   </Link>
@@ -221,7 +269,9 @@ export default function Dashboard() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground mb-1">Total Views</p>
-                    <p className="text-2xl font-bold text-foreground">2,847</p>
+                    <p className="text-2xl font-bold text-foreground">
+                      {loading ? "..." : stats.totalViews.toLocaleString()}
+                    </p>
                   </div>
                   <Eye className="w-8 h-8 text-primary/50" />
                 </div>
@@ -231,7 +281,9 @@ export default function Dashboard() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground mb-1">Saved Items</p>
-                    <p className="text-2xl font-bold text-foreground">12</p>
+                    <p className="text-2xl font-bold text-foreground">
+                      {loading ? "..." : stats.savedDocuments}
+                    </p>
                   </div>
                   <BookmarkCheck className="w-8 h-8 text-yellow-500/50" />
                 </div>
@@ -241,7 +293,9 @@ export default function Dashboard() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground mb-1">Contributions</p>
-                    <p className="text-2xl font-bold text-foreground">5</p>
+                    <p className="text-2xl font-bold text-foreground">
+                      {loading ? "..." : stats.contributions}
+                    </p>
                   </div>
                   <Upload className="w-8 h-8 text-green-500/50" />
                 </div>
@@ -251,7 +305,9 @@ export default function Dashboard() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground mb-1">Downloads</p>
-                    <p className="text-2xl font-bold text-foreground">284</p>
+                    <p className="text-2xl font-bold text-foreground">
+                      {loading ? "..." : stats.totalDownloads.toLocaleString()}
+                    </p>
                   </div>
                   <Download className="w-8 h-8 text-blue-500/50" />
                 </div>
@@ -267,95 +323,122 @@ export default function Dashboard() {
                   <Clock className="w-5 h-5 text-primary" />
                   <span>Recently Viewed</span>
                 </h2>
-                {/* Removed "View All" link to browse page */}
               </div>
 
-              <div className="space-y-3">
-                {recentlyViewedFiltered.map((doc) => (
-                  <Link
-                    key={doc.id}
-                    href={`/document/${doc.id}`}
-                    className="glass glow-hover p-4 rounded-lg flex items-center justify-between group"
-                  >
-                    <div className="flex-1">
-                      <h3 className="font-medium text-foreground group-hover:text-primary transition">{doc.title}</h3>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {doc.author} • {doc.date}
-                      </p>
+              {loading ? (
+                <div className="space-y-3">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="glass p-4 rounded-lg animate-pulse">
+                      <div className="h-4 bg-muted rounded w-3/4 mb-2"></div>
+                      <div className="h-3 bg-muted rounded w-1/2"></div>
                     </div>
-                    <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-                      <Eye className="w-4 h-4" />
-                      <span>{doc.views}</span>
-                      <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition" />
-                    </div>
-                  </Link>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : recentlyViewedFiltered.length > 0 ? (
+                <div className="space-y-3">
+                  {recentlyViewedFiltered.map((doc) => (
+                    <Link
+                      key={doc.id}
+                      href={`/document/${doc.id}`}
+                      className="glass glow-hover p-4 rounded-lg flex items-center justify-between group"
+                    >
+                      <div className="flex-1">
+                        <h3 className="font-medium text-foreground group-hover:text-primary transition">{doc.title}</h3>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {doc.author} • {new Date(doc.date).toLocaleDateString()}
+                          {doc.department && ` • ${doc.department}`}
+                        </p>
+                      </div>
+                      <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+                        <Eye className="w-4 h-4" />
+                        <span>{doc.views}</span>
+                        <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition" />
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div className="glass rounded-lg p-8 text-center">
+                  <Clock className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
+                  <p className="text-muted-foreground">No recently viewed documents</p>
+                  <p className="text-sm text-muted-foreground mt-1">Start exploring the library to see your recent activity</p>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Two Column Layout - hide when showing search results */}
+          {/* Quick Actions */}
           {!searchQuery && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Saved Documents */}
+              {/* Quick Links */}
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-xl font-semibold text-foreground flex items-center space-x-2">
                     <Star className="w-5 h-5 text-yellow-500" />
-                    <span>Saved Documents</span>
+                    <span>Quick Actions</span>
                   </h2>
-                  <Link href="/saved-documents" className="text-primary hover:text-accent transition text-sm">
-                    View All
-                  </Link>
                 </div>
 
                 <div className="space-y-3">
-                  {savedDocuments.map((doc) => (
-                    <div key={doc.id} className="glass glow-hover p-4 rounded-lg">
-                      <h3 className="font-medium text-foreground hover:text-primary transition cursor-pointer">
-                        {doc.title}
-                      </h3>
-                      <p className="text-xs text-muted-foreground mt-2">
-                        {doc.author} • {doc.date}
-                      </p>
+                  <Link href="/saved-documents" className="glass glow-hover p-4 rounded-lg block">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="font-medium text-foreground">Saved Documents</h3>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          View your bookmarked documents ({stats.savedDocuments})
+                        </p>
+                      </div>
+                      <ArrowRight className="w-4 h-4 text-muted-foreground" />
                     </div>
-                  ))}
+                  </Link>
+
+                  <Link href="/your-contributions" className="glass glow-hover p-4 rounded-lg block">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="font-medium text-foreground">Your Contributions</h3>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Manage your uploaded documents ({stats.contributions})
+                        </p>
+                      </div>
+                      <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                    </div>
+                  </Link>
+
+                  <Link href="/library" className="glass glow-hover p-4 rounded-lg block">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="font-medium text-foreground">Browse Library</h3>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Explore all available documents
+                        </p>
+                      </div>
+                      <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                    </div>
+                  </Link>
                 </div>
               </div>
 
-              {/* Your Contributions */}
+              {/* Upload Section */}
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-xl font-semibold text-foreground flex items-center space-x-2">
                     <Upload className="w-5 h-5 text-green-500" />
-                    <span>Your Contributions</span>
+                    <span>Contribute</span>
                   </h2>
-                  <Link href="/upload" className="text-primary hover:text-accent transition text-sm">
-                    Upload New
-                  </Link>
                 </div>
 
-                <div className="space-y-3">
-                  {contributions.map((doc) => (
-                    <div key={doc.id} className="glass glow-hover p-4 rounded-lg">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <h3 className="font-medium text-foreground">{doc.title}</h3>
-                          <p className="text-xs text-muted-foreground mt-1">{doc.date}</p>
-                        </div>
-                        <span
-                          className={`text-xs px-2 py-1 rounded-full ${
-                            doc.status === "published"
-                              ? "bg-green-500/20 text-green-400"
-                              : "bg-yellow-500/20 text-yellow-400"
-                          }`}
-                        >
-                          {doc.status}
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-2">{doc.views} views</p>
-                    </div>
-                  ))}
+                <div className="glass rounded-lg p-6 text-center">
+                  <Upload className="w-12 h-12 text-green-500/50 mx-auto mb-4" />
+                  <h3 className="font-medium text-foreground mb-2">Share Knowledge</h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Upload documents to share with your organization
+                  </p>
+                  <Link
+                    href="/upload"
+                    className="inline-block px-6 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition font-medium"
+                  >
+                    Upload Document
+                  </Link>
                 </div>
               </div>
             </div>

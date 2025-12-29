@@ -5,7 +5,8 @@ import type React from "react"
 import { Navbar } from "@/components/navbar"
 import { Footer } from "@/components/footer"
 import { useState } from "react"
-import { Upload, FileUp, X, Lock, Shield, CheckCircle2, AlertCircle } from "lucide-react"
+import { Upload, FileUp, X, Lock, Shield, CheckCircle2, AlertCircle, Loader2 } from "lucide-react"
+import { useToastContext } from "@/context/toast-context"
 
 interface SecuritySettings {
   everyone: boolean
@@ -16,6 +17,7 @@ interface SecuritySettings {
 export default function UploadDocument() {
   const [file, setFile] = useState<File | null>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
   const [showOTPVerification, setShowOTPVerification] = useState(false)
   const [managementEmails, setManagementEmails] = useState("")
   const [selectedDepartment, setSelectedDepartment] = useState("")
@@ -33,6 +35,8 @@ export default function UploadDocument() {
     management: false,
     department: false,
   })
+
+  const { showToast } = useToastContext()
 
   const allEmployees = [
     "John Smith (Engineering)",
@@ -60,7 +64,17 @@ export default function UploadDocument() {
     e.preventDefault()
     setIsDragging(false)
     if (e.dataTransfer.files?.[0]) {
-      setFile(e.dataTransfer.files[0])
+      const droppedFile = e.dataTransfer.files[0]
+      setFile(droppedFile)
+      showToast(`File "${droppedFile.name}" selected for upload`, "info")
+    }
+  }
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files?.[0]) {
+      const selectedFile = e.target.files[0]
+      setFile(selectedFile)
+      showToast(`File "${selectedFile.name}" selected for upload`, "info")
     }
   }
 
@@ -75,25 +89,106 @@ export default function UploadDocument() {
     }))
   }
 
-  const handleUpload = (e: React.FormEvent) => {
+  const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault()
 
+    if (!file) {
+      showToast("Please select a file to upload", "error")
+      return
+    }
+
+    if (!formData.title.trim()) {
+      showToast("Please enter a document title", "error")
+      return
+    }
+
+    if (!formData.category) {
+      showToast("Please select a category", "error")
+      return
+    }
+
     if (securitySettings.management && !managementEmails.trim() && selectedEmployees.length === 0) {
-      alert("Please add email addresses or select employees for management access")
+      showToast("Please add email addresses or select employees for management access", "error")
       return
     }
 
     if (securitySettings.department && !selectedDepartment) {
-      alert("Please select a department")
+      showToast("Please select a department", "error")
       return
     }
 
-    alert(
-      `Uploading: ${file?.name}\nTitle: ${formData.title}\nSecurity: ${Object.entries(securitySettings)
-        .filter(([_, v]) => v)
-        .map(([k]) => k)
-        .join(", ")}`,
-    )
+    setIsUploading(true)
+    
+    try {
+      // Create FormData for file upload
+      const uploadFormData = new FormData()
+      uploadFormData.append('file', file)
+      uploadFormData.append('title', formData.title)
+      uploadFormData.append('category', formData.category)
+      uploadFormData.append('department', formData.department)
+      uploadFormData.append('tags', formData.tags)
+      uploadFormData.append('description', formData.description)
+      
+      // Add security settings
+      uploadFormData.append('visibility', securitySettings.everyone ? 'org' : 'private')
+      if (securitySettings.management) {
+        uploadFormData.append('managementEmails', managementEmails)
+        uploadFormData.append('selectedEmployees', JSON.stringify(selectedEmployees))
+      }
+      if (securitySettings.department) {
+        uploadFormData.append('restrictedDepartment', selectedDepartment)
+      }
+
+      showToast("Uploading file...", "info", 5000)
+
+      const response = await fetch('/api/files/upload', {
+        method: 'POST',
+        body: uploadFormData,
+      })
+
+      const result = await response.json()
+
+      if (response.ok && result.success) {
+        showToast(`✅ File "${file.name}" uploaded successfully!`, "success", 5000)
+        
+        // Show additional info about processing
+        if (result.extractionJobId) {
+          showToast("📄 Text extraction started - you'll be notified when complete", "info", 4000)
+        }
+        
+        if (result.searchIndexed) {
+          showToast("🔍 Document indexed for search", "success", 3000)
+        }
+
+        // Reset form
+        setFile(null)
+        setFormData({ title: "", category: "", department: "", tags: "", description: "" })
+        setSecuritySettings({ everyone: true, management: false, department: false })
+        setManagementEmails("")
+        setSelectedDepartment("")
+        setEmployeeSearch("")
+        setSelectedEmployees([])
+
+        // Optionally redirect to the document or library
+        // router.push(`/document/${result.fileId}`)
+        
+      } else {
+        throw new Error(result.error || 'Upload failed')
+      }
+
+    } catch (error) {
+      console.error('Upload error:', error)
+      showToast(
+        `❌ Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`, 
+        "error", 
+        6000
+      )
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
+  const handleCancel = () => {
     setFile(null)
     setFormData({ title: "", category: "", department: "", tags: "", description: "" })
     setSecuritySettings({ everyone: true, management: false, department: false })
@@ -101,6 +196,7 @@ export default function UploadDocument() {
     setSelectedDepartment("")
     setEmployeeSearch("")
     setSelectedEmployees([])
+    showToast("Upload cancelled", "info")
   }
 
   return (
@@ -137,15 +233,18 @@ export default function UploadDocument() {
                 </div>
               ) : (
                 <>
-                  <Upload className="w-12 h-12 text-primary mx-auto mb-4" />
-                  <p className="text-lg font-medium text-foreground mb-2">Drag and drop your file here</p>
-                  <p className="text-sm text-muted-foreground mb-4">or click to browse</p>
                   <input
                     type="file"
-                    onChange={(e) => e.target.files?.[0] && setFile(e.target.files[0])}
+                    onChange={handleFileSelect}
                     className="hidden"
                     accept="*"
+                    id="file-upload"
                   />
+                  <label htmlFor="file-upload" className="cursor-pointer">
+                    <Upload className="w-12 h-12 text-primary mx-auto mb-4" />
+                    <p className="text-lg font-medium text-foreground mb-2">Drag and drop your file here</p>
+                    <p className="text-sm text-muted-foreground mb-4">or click to browse</p>
+                  </label>
                 </>
               )}
             </div>
@@ -374,10 +473,26 @@ export default function UploadDocument() {
 
             {/* Buttons */}
             <div className="flex space-x-4">
-              <button type="submit" disabled={!file} className="button-primary flex-1 disabled:opacity-50">
-                Upload Document
+              <button 
+                type="submit" 
+                disabled={!file || isUploading} 
+                className="button-primary flex-1 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isUploading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Uploading...
+                  </>
+                ) : (
+                  "Upload Document"
+                )}
               </button>
-              <button type="button" className="button-glass px-6">
+              <button 
+                type="button" 
+                onClick={handleCancel}
+                disabled={isUploading}
+                className="button-glass px-6 disabled:opacity-50"
+              >
                 Cancel
               </button>
             </div>

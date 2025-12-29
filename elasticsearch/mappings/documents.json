@@ -1,0 +1,185 @@
+{
+  "mappings": {
+    "properties": {
+      "file_id": { 
+        "type": "keyword",
+        "index": true
+      },
+      "organization_id": { 
+        "type": "keyword",
+        "index": true
+      },
+      "title": { 
+        "type": "text", 
+        "analyzer": "standard",
+        "search_analyzer": "standard",
+        "fields": {
+          "keyword": { 
+            "type": "keyword",
+            "ignore_above": 256
+          },
+          "suggest": {
+            "type": "completion",
+            "analyzer": "simple",
+            "preserve_separators": true,
+            "preserve_position_increments": true,
+            "max_input_length": 50
+          }
+        }
+      },
+      "content": { 
+        "type": "text", 
+        "analyzer": "standard",
+        "search_analyzer": "standard",
+        "term_vector": "with_positions_offsets"
+      },
+      "author": { 
+        "type": "keyword",
+        "fields": {
+          "text": {
+            "type": "text",
+            "analyzer": "standard"
+          }
+        }
+      },
+      "department": { 
+        "type": "keyword",
+        "fields": {
+          "text": {
+            "type": "text",
+            "analyzer": "standard"
+          }
+        }
+      },
+      "tags": { 
+        "type": "keyword",
+        "fields": {
+          "text": {
+            "type": "text",
+            "analyzer": "standard"
+          }
+        }
+      },
+      "file_type": { 
+        "type": "keyword",
+        "index": true
+      },
+      "mime_type": { 
+        "type": "keyword",
+        "index": true
+      },
+      "size_bytes": { 
+        "type": "long",
+        "index": true
+      },
+      "created_at": { 
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis"
+      },
+      "updated_at": { 
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis"
+      },
+      "indexed_at": { 
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis"
+      },
+      "extracted_text": { 
+        "type": "text", 
+        "analyzer": "standard",
+        "search_analyzer": "standard",
+        "term_vector": "with_positions_offsets"
+      },
+      "ocr_confidence": { 
+        "type": "float",
+        "index": true
+      },
+      "language": { 
+        "type": "keyword",
+        "index": true
+      },
+      "visibility": { 
+        "type": "keyword",
+        "index": true
+      },
+      "folder_path": { 
+        "type": "text",
+        "analyzer": "keyword",
+        "fields": {
+          "hierarchy": {
+            "type": "text",
+            "analyzer": "path_hierarchy"
+          }
+        }
+      },
+      "search_text": { 
+        "type": "text", 
+        "analyzer": "corporate_text_analyzer"
+      },
+      "permissions": {
+        "type": "nested",
+        "properties": {
+          "user_id": { "type": "keyword" },
+          "permission": { "type": "keyword" },
+          "expires_at": { "type": "date" }
+        }
+      },
+      "metadata": {
+        "type": "object",
+        "properties": {
+          "word_count": { "type": "integer" },
+          "character_count": { "type": "integer" },
+          "page_count": { "type": "integer" },
+          "has_images": { "type": "boolean" },
+          "has_tables": { "type": "boolean" },
+          "is_encrypted": { "type": "boolean" }
+        }
+      }
+    }
+  },
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 1,
+    "refresh_interval": "5s",
+    "max_result_window": 50000,
+    "analysis": {
+      "analyzer": {
+        "corporate_text_analyzer": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "stop",
+            "snowball",
+            "corporate_synonym"
+          ]
+        },
+        "path_hierarchy": {
+          "type": "custom",
+          "tokenizer": "path_hierarchy_tokenizer"
+        }
+      },
+      "tokenizer": {
+        "path_hierarchy_tokenizer": {
+          "type": "path_hierarchy",
+          "delimiter": "/"
+        }
+      },
+      "filter": {
+        "corporate_synonym": {
+          "type": "synonym",
+          "synonyms": [
+            "doc,document,file",
+            "pdf,portable document format",
+            "xls,xlsx,excel,spreadsheet",
+            "ppt,pptx,powerpoint,presentation",
+            "img,image,picture,photo"
+          ]
+        }
+      }
+    },
+    "highlight": {
+      "max_analyzed_offset": 1000000
+    }
+  }
+}

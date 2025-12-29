@@ -2,7 +2,10 @@
 
 import { Navbar } from "@/components/navbar"
 import { Footer } from "@/components/footer"
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useAuth } from "@/context/auth-context"
+import { useToast } from "@/hooks/use-toast"
+import { useToastContext } from "@/context/toast-context"
 import {
   Folder,
   File,
@@ -20,83 +23,58 @@ import {
   Mail,
   MapPin,
   Clock,
+  Loader2,
+  AlertCircle,
 } from "lucide-react"
 
 interface FileItem {
-  id: string
+  id: number
   name: string
-  type: string
-  size: string
-  uploadDate: string
-  folderId: string
-  uploader?: {
-    name: string
-    department: string
-    email: string
-    location: string
-    timePosted: string
-  }
-  tags?: string[]
+  original_name: string
+  file_type: string
+  mime_type: string
+  size_bytes: number
+  folder_id: number
   description?: string
+  tags?: string[]
+  visibility: string
+  department?: string
+  created_at: string
+  updated_at: string
+  created_by: number
+  uploaded_by_name?: string
+  folder_name?: string
   views?: number
+  download_count?: number
 }
 
 interface FolderItem {
-  id: string
+  id: number
   name: string
-  parentId: string | null
-  fileCount: number
-  createdDate: string
+  parent_id: number | null
+  description?: string
+  department?: string
+  created_at: string
+  created_by: number
+  file_count?: number
+  subfolder_count?: number
+  total_size_bytes?: number
 }
 
 export default function Library() {
-  const [folders, setFolders] = useState<FolderItem[]>([
-    { id: "1", name: "Company Policies", parentId: null, fileCount: 5, createdDate: "2024-11-01" },
-    { id: "2", name: "HR Documents", parentId: null, fileCount: 8, createdDate: "2024-11-05" },
-  ])
-
-  const [files, setFiles] = useState<FileItem[]>([
-    {
-      id: "1",
-      name: "Policy Guide.pdf",
-      type: "PDF",
-      size: "2.4 MB",
-      uploadDate: "2024-11-15",
-      folderId: "1",
-      uploader: {
-        name: "John Doe",
-        department: "Legal",
-        email: "john@company.com",
-        location: "New York, USA",
-        timePosted: "2024-11-15 10:30 AM",
-      },
-      tags: ["policy", "guidelines"],
-      description: "Company policy guidelines and procedures",
-      views: 156,
-    },
-    {
-      id: "2",
-      name: "Employee Handbook.docx",
-      type: "DOCX",
-      size: "1.8 MB",
-      uploadDate: "2024-11-10",
-      folderId: "2",
-      uploader: {
-        name: "Jane Smith",
-        department: "HR",
-        email: "jane@company.com",
-        location: "Boston, USA",
-        timePosted: "2024-11-10 09:15 AM",
-      },
-      tags: ["handbook", "hr", "onboarding"],
-      description: "Employee handbook with company policies and benefits",
-      views: 320,
-    },
-  ])
-
-  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null)
+  const { user, isAuthenticated } = useAuth()
+  const { addToast } = useToast()
+  const { showToast } = useToastContext()
+  const [folders, setFolders] = useState<FolderItem[]>([])
+  const [files, setFiles] = useState<FileItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  
+  const [currentFolderId, setCurrentFolderId] = useState<number | null>(null)
   const [showNewFolderModal, setShowNewFolderModal] = useState(false)
   const [newFolderName, setNewFolderName] = useState("")
+  const [newFolderDescription, setNewFolderDescription] = useState("")
+  const [newFolderDepartment, setNewFolderDepartment] = useState("")
   const [breadcrumb, setBreadcrumb] = useState<FolderItem[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null)
@@ -106,44 +84,232 @@ export default function Library() {
   const [copiedLink, setCopiedLink] = useState(false)
   const [showPreviewModal, setShowPreviewModal] = useState(false)
   const [selectedFileForPreview, setSelectedFileForPreview] = useState<FileItem | null>(null)
+  const [showAISummaryModal, setShowAISummaryModal] = useState(false)
+  const [aiSummary, setAiSummary] = useState<string>('')
+  const [loadingAISummary, setLoadingAISummary] = useState(false)
+  const [aiSummaryError, setAiSummaryError] = useState<string>('')
   const [showUploadModal, setShowUploadModal] = useState(false)
+  const [uploadFile, setUploadFile] = useState<File | null>(null)
   const [uploadFormData, setUploadFormData] = useState({
-    fileName: "",
     title: "",
     description: "",
     tags: "",
     department: "",
-    fileType: "PDF",
+    visibility: "private",
   })
+  const [uploading, setUploading] = useState(false)
+  const [creatingFolder, setCreatingFolder] = useState(false)
+  const [departments, setDepartments] = useState<Array<{id: number, name: string, code: string}>>([])
 
-  const currentFolder = currentFolderId ? folders.find((f) => f.id === currentFolderId) : null
-  const currentFiles = files.filter((f) => f.folderId === currentFolderId)
-  const subFolders = folders.filter((f) => f.parentId === currentFolderId)
+  // Fetch folders and files
+  const fetchData = async () => {
+    if (!isAuthenticated || !user) return
 
-  const filteredFolders = subFolders.filter((folder) => folder.name.toLowerCase().includes(searchQuery.toLowerCase()))
-  const filteredFiles = currentFiles.filter((file) => file.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    try {
+      setLoading(true)
+      setError(null)
 
-  const handleCreateFolder = () => {
-    if (!newFolderName.trim()) return
-    const newFolder: FolderItem = {
-      id: Date.now().toString(),
-      name: newFolderName,
-      parentId: currentFolderId,
-      fileCount: 0,
-      createdDate: new Date().toISOString().split("T")[0],
+      // Fetch folders
+      const foldersResponse = await fetch(`/api/folders?parentId=${currentFolderId || ''}`, {
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (!foldersResponse.ok) {
+        throw new Error(`Failed to fetch folders: ${foldersResponse.statusText}`)
+      }
+
+      const foldersData = await foldersResponse.json()
+      if (!foldersData.success) {
+        throw new Error(foldersData.error || 'Failed to fetch folders')
+      }
+
+      setFolders(foldersData.folders || [])
+
+      // Fetch files in current folder
+      if (currentFolderId || searchQuery) {
+        const filesUrl = searchQuery 
+          ? `/api/files?search=${encodeURIComponent(searchQuery)}`
+          : `/api/files?folderId=${currentFolderId}`
+
+        const filesResponse = await fetch(filesUrl, {
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        })
+
+        if (!filesResponse.ok) {
+          throw new Error(`Failed to fetch files: ${filesResponse.statusText}`)
+        }
+
+        const filesData = await filesResponse.json()
+        if (!filesData.success) {
+          throw new Error(filesData.error || 'Failed to fetch files')
+        }
+
+        setFiles(filesData.files || [])
+      } else {
+        setFiles([])
+      }
+
+    } catch (err) {
+      console.error('Error fetching data:', err)
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load data'
+      setError(errorMessage)
+      
+      // Show toast for authentication errors
+      if (errorMessage.includes('authentication') || errorMessage.includes('401')) {
+        showToast('Please log in to access the library', 'error')
+      } else {
+        showToast(errorMessage, 'error')
+      }
+    } finally {
+      setLoading(false)
     }
-    setFolders([...folders, newFolder])
-    setNewFolderName("")
-    setShowNewFolderModal(false)
   }
 
-  const handleOpenFolder = (folderId: string) => {
-    setCurrentFolderId(folderId)
+  useEffect(() => {
+    fetchData()
+    fetchDepartments()
+  }, [isAuthenticated, user, currentFolderId, searchQuery])
+
+  const fetchDepartments = async () => {
+    if (!isAuthenticated || !user) return
+
+    try {
+      const response = await fetch('/api/departments', {
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success) {
+          setDepartments(data.departments || [])
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching departments:', error)
+    }
+  }
+
+  const handleCreateFolder = async () => {
+    if (!newFolderName.trim() || !user) return
+
+    try {
+      setCreatingFolder(true)
+
+      const response = await fetch('/api/folders', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name: newFolderName,
+          parentId: currentFolderId,
+          description: newFolderDescription,
+          department: newFolderDepartment || user.department || ''
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to create folder: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to create folder')
+      }
+
+      // Refresh data
+      await fetchData()
+      
+      // Reset form
+      setNewFolderName("")
+      setNewFolderDescription("")
+      setNewFolderDepartment("")
+      setShowNewFolderModal(false)
+      
+      showToast('✅ Folder created successfully!', 'success')
+
+    } catch (err) {
+      console.error('Error creating folder:', err)
+      const errorMessage = err instanceof Error ? err.message : 'Failed to create folder'
+      setError(errorMessage)
+      showToast(`❌ ${errorMessage}`, 'error')
+    } finally {
+      setCreatingFolder(false)
+    }
+  }
+
+  const handleUploadFile = async () => {
+    if (!uploadFile || !user) return
+
+    try {
+      setUploading(true)
+
+      const formData = new FormData()
+      formData.append('file', uploadFile)
+      formData.append('folderId', (currentFolderId || '').toString())
+      formData.append('description', uploadFormData.description)
+      formData.append('tags', uploadFormData.tags)
+      formData.append('visibility', uploadFormData.visibility)
+      formData.append('department', uploadFormData.department || user.department || '')
+
+      const response = await fetch('/api/files/upload', {
+        method: 'POST',
+        credentials: 'include',
+        body: formData
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to upload file: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to upload file')
+      }
+
+      // Refresh data
+      await fetchData()
+      
+      // Reset form
+      setUploadFile(null)
+      setUploadFormData({
+        title: "",
+        description: "",
+        tags: "",
+        department: "",
+        visibility: "private",
+      })
+      setShowUploadModal(false)
+      
+      showToast('✅ File uploaded successfully!', 'success')
+
+    } catch (err) {
+      console.error('Error uploading file:', err)
+      const errorMessage = err instanceof Error ? err.message : 'Failed to upload file'
+      setError(errorMessage)
+      showToast(`❌ ${errorMessage}`, 'error')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const handleOpenFolder = (folderId: number) => {
     const folder = folders.find((f) => f.id === folderId)
     if (folder) {
+      setCurrentFolderId(folderId)
       setBreadcrumb([...breadcrumb, folder])
+      setSearchQuery("")
     }
-    setSearchQuery("")
   }
 
   const handleGoBack = () => {
@@ -151,23 +317,79 @@ export default function Library() {
       const newBreadcrumb = breadcrumb.slice(0, -1)
       setBreadcrumb(newBreadcrumb)
       setCurrentFolderId(newBreadcrumb.length > 0 ? newBreadcrumb[newBreadcrumb.length - 1].id : null)
+      setSearchQuery("")
     }
-    setSearchQuery("")
   }
 
-  const handleDeleteFolder = (folderId: string) => {
-    setFolders(folders.filter((f) => f.id !== folderId))
-    setFiles(files.filter((f) => f.folderId !== folderId))
+  const handleDeleteFolder = async (folderId: number) => {
+    if (!user || !confirm('Are you sure you want to delete this folder?')) return
+
+    try {
+      const response = await fetch(`/api/folders/${folderId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to delete folder: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to delete folder')
+      }
+
+      // Refresh data
+      await fetchData()
+      
+      showToast('✅ Folder deleted successfully!', 'success')
+
+    } catch (err) {
+      console.error('Error deleting folder:', err)
+      const errorMessage = err instanceof Error ? err.message : 'Failed to delete folder'
+      setError(errorMessage)
+      showToast(`❌ ${errorMessage}`, 'error')
+    }
   }
 
-  const handleDeleteFile = (fileId: string) => {
-    setFiles(files.filter((f) => f.id !== fileId))
+  const handleDeleteFile = async (fileId: number) => {
+    if (!user || !confirm('Are you sure you want to delete this file?')) return
+
+    try {
+      const response = await fetch(`/api/files/${fileId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to delete file: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to delete file')
+      }
+
+      // Refresh data
+      await fetchData()
+      
+      showToast('✅ File deleted successfully!', 'success')
+
+    } catch (err) {
+      console.error('Error deleting file:', err)
+      const errorMessage = err instanceof Error ? err.message : 'Failed to delete file'
+      setError(errorMessage)
+      showToast(`❌ ${errorMessage}`, 'error')
+    }
   }
 
-  const handleOpenFileDetails = (file: FileItem) => {
-    setSelectedFile(file)
-    setShowDetailModal(true)
-  }
+
 
   const handleCopyLink = () => {
     if (selectedFile) {
@@ -183,39 +405,125 @@ export default function Library() {
     setShowPreviewModal(true)
   }
 
+  const handleFileClick = async (file: FileItem) => {
+    setSelectedFile(file)
+    setShowDetailModal(true)
+    
+    // Track file view
+    try {
+      const response = await fetch(`/api/files/${file.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ action: 'view' })
+      })
+      
+      if (response.ok) {
+        // Update local file data with new view count
+        setFiles(prevFiles => 
+          prevFiles.map(f => 
+            f.id === file.id 
+              ? { ...f, view_count: (f.view_count || 0) + 1 }
+              : f
+          )
+        )
+      }
+    } catch (error) {
+      console.error('Error tracking file view:', error)
+    }
+  }
+
+  const handleGenerateAISummary = async () => {
+    if (!selectedFile) return
+    
+    setLoadingAISummary(true)
+    setAiSummaryError('')
+    
+    // Show initial toast
+    showToast("🤖 Generating AI summary...", "info", 5000)
+    
+    try {
+      // First try to get existing summary
+      const existingResponse = await fetch(`/api/files/${selectedFile.id}/ai-summary`)
+      
+      if (existingResponse.ok) {
+        const data = await existingResponse.json()
+        if (data.success && data.summary) {
+          setAiSummary(data.summary)
+          setShowAISummaryModal(true)
+          showToast("✅ AI summary loaded successfully!", "success", 4000)
+          return
+        }
+      }
+      
+      // Generate new summary
+      const generateResponse = await fetch(`/api/files/${selectedFile.id}/ai-summary`, {
+        method: 'POST'
+      })
+      
+      if (generateResponse.ok) {
+        const data = await generateResponse.json()
+        if (data.success && data.summary) {
+          setAiSummary(data.summary)
+          setShowAISummaryModal(true)
+          showToast("🎉 AI summary generated successfully!", "success", 5000)
+        } else {
+          throw new Error(data.error || 'Failed to generate summary')
+        }
+      } else {
+        const errorData = await generateResponse.json()
+        throw new Error(errorData.error || 'Failed to generate summary')
+      }
+    } catch (error) {
+      console.error('Error with AI summary:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Failed to generate summary'
+      setAiSummaryError(errorMessage)
+      showToast(`❌ AI summary failed: ${errorMessage}`, "error", 6000)
+    } finally {
+      setLoadingAISummary(false)
+    }
+  }
+
   const getFileIcon = (fileType: string) => {
     const iconColor: Record<string, string> = {
-      PDF: "text-red-400",
-      DOCX: "text-blue-400",
-      XLSX: "text-green-400",
-      PPTX: "text-orange-400",
-      TXT: "text-gray-400",
-      PNG: "text-purple-400",
-      JPG: "text-purple-400",
-      MP4: "text-pink-400",
-      MP3: "text-yellow-400",
-      ZIP: "text-amber-400",
+      pdf: "text-red-400",
+      document: "text-blue-400",
+      spreadsheet: "text-green-400",
+      presentation: "text-orange-400",
+      text: "text-gray-400",
+      image: "text-purple-400",
+      video: "text-pink-400",
+      audio: "text-yellow-400",
+      other: "text-amber-400",
     }
     return iconColor[fileType] || "text-gray-400"
   }
 
-  const getFilePreview = (fileType: string) => {
-    const previews: Record<string, string> = {
-      PDF: "📄 PDF Preview",
-      DOCX: "📝 Document Preview",
-      XLSX: "📊 Spreadsheet Preview",
-      PPTX: "🎯 Presentation Preview",
-      TXT: "📋 Text File Preview",
-      PNG: "🖼️ Image Preview",
-      JPG: "🖼️ Image Preview",
-      MP4: "🎬 Video Preview",
-      MP3: "🎵 Audio Preview",
-      ZIP: "📦 Archive Preview",
-    }
-    return previews[fileType] || "📄 File Preview"
+  const formatFileSize = (bytes: number): string => {
+    if (!bytes) return '0 B'
+    
+    const k = 1024
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
   }
 
-  const hasResults = filteredFolders.length > 0 || filteredFiles.length > 0
+  const formatDate = (dateString: string): string => {
+    return new Date(dateString).toLocaleDateString()
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center">
+        <h1 className="text-2xl font-bold text-foreground">Access Denied</h1>
+        <p className="text-muted-foreground mt-2">Please log in to access the library</p>
+      </div>
+    )
+  }
+
+  const hasResults = folders.length > 0 || files.length > 0
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -226,6 +534,20 @@ export default function Library() {
           {/* Header */}
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-foreground mb-4">Document Library</h1>
+
+            {/* Error Display */}
+            {error && (
+              <div className="mb-4 p-4 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-2">
+                <AlertCircle className="w-5 h-5 text-red-500" />
+                <span className="text-red-500">{error}</span>
+                <button 
+                  onClick={() => setError(null)}
+                  className="ml-auto text-red-500 hover:text-red-400"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
 
             {/* Breadcrumb Navigation */}
             <div className="flex items-center gap-2 mb-6 text-sm text-muted-foreground">
@@ -282,14 +604,16 @@ export default function Library() {
             <div className="flex gap-3">
               <button
                 onClick={() => setShowNewFolderModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-primary hover:opacity-90 transition rounded-lg text-primary-foreground font-medium"
+                disabled={loading}
+                className="flex items-center gap-2 px-4 py-2 bg-primary hover:opacity-90 transition rounded-lg text-primary-foreground font-medium disabled:opacity-50"
               >
                 <Plus className="w-4 h-4" />
                 New Folder
               </button>
               <button
                 onClick={() => setShowUploadModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-secondary/80 transition rounded-lg text-foreground font-medium"
+                disabled={loading || !currentFolderId}
+                className="flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-secondary/80 transition rounded-lg text-foreground font-medium disabled:opacity-50"
               >
                 <Upload className="w-4 h-4" />
                 Upload File
@@ -297,30 +621,236 @@ export default function Library() {
             </div>
           </div>
 
+          {/* Loading State */}
+          {loading && (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              <span className="ml-2 text-muted-foreground">Loading...</span>
+            </div>
+          )}
+
+          {/* Content */}
+          {!loading && (
+            <>
+              {searchQuery ? (
+                <>
+                  {hasResults ? (
+                    <div className="space-y-8">
+                      {folders.length > 0 && (
+                        <div>
+                          <h2 className="text-lg font-semibold text-foreground mb-4">Folders ({folders.length})</h2>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                            {folders.map((folder) => (
+                              <div
+                                key={folder.id}
+                                className="glass rounded-lg p-4 hover:bg-secondary/50 transition cursor-pointer group relative"
+                              >
+                                <div onClick={() => handleOpenFolder(folder.id)} className="flex items-center gap-3">
+                                  <Folder className="w-8 h-8 text-yellow-400" />
+                                  <div className="flex-1 min-w-0">
+                                    <h3 className="font-medium text-foreground truncate">{folder.name}</h3>
+                                    <p className="text-xs text-muted-foreground">{folder.file_count || 0} items</p>
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleDeleteFolder(folder.id)
+                                  }}
+                                  className="absolute right-2 top-2 p-1 opacity-0 group-hover:opacity-100 transition hover:bg-red-500/20 rounded"
+                                >
+                                  <Trash2 className="w-4 h-4 text-red-400" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {files.length > 0 && (
+                        <div>
+                          <h2 className="text-lg font-semibold text-foreground mb-4">Files ({files.length})</h2>
+                          <div className="space-y-2">
+                            {files.map((file) => (
+                              <div
+                                key={file.id}
+                                className="glass rounded-lg p-4 flex items-center justify-between group hover:bg-secondary/50 transition cursor-pointer"
+                                onClick={() => handleFileClick(file)}
+                              >
+                                <div className="flex items-center gap-3 flex-1 min-w-0">
+                                  <File className={`w-5 h-5 flex-shrink-0 ${getFileIcon(file.file_type)}`} />
+                                  <div className="flex-1 min-w-0">
+                                    <h3 className="font-medium text-foreground truncate">{file.name}</h3>
+                                    <p className="text-xs text-muted-foreground">
+                                      {formatFileSize(file.size_bytes)} • {formatDate(file.created_at)}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 ml-4">
+                                  <span className="text-xs px-2 py-1 rounded bg-primary/20 text-primary">
+                                    {file.file_type?.toUpperCase() || 'FILE'}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="glass rounded-lg p-8 text-center">
+                      <Search className="w-12 h-12 text-muted-foreground/50 mx-auto mb-4" />
+                      <h3 className="text-lg font-semibold text-foreground mb-1">No results found</h3>
+                      <p className="text-muted-foreground">No folders or files match "{searchQuery}"</p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  {folders.length > 0 && (
+                    <div className="mb-8">
+                      <h2 className="text-lg font-semibold text-foreground mb-4">Folders</h2>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        {folders.map((folder) => (
+                          <div
+                            key={folder.id}
+                            className="glass rounded-lg p-4 hover:bg-secondary/50 transition cursor-pointer group relative"
+                          >
+                            <div onClick={() => handleOpenFolder(folder.id)} className="flex items-center gap-3">
+                              <Folder className="w-8 h-8 text-yellow-400" />
+                              <div className="flex-1 min-w-0">
+                                <h3 className="font-medium text-foreground truncate">{folder.name}</h3>
+                                <p className="text-xs text-muted-foreground">{folder.file_count || 0} items</p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleDeleteFolder(folder.id)
+                              }}
+                              className="absolute right-2 top-2 p-1 opacity-0 group-hover:opacity-100 transition hover:bg-red-500/20 rounded"
+                            >
+                              <Trash2 className="w-4 h-4 text-red-400" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {files.length > 0 && (
+                    <div>
+                      <h2 className="text-lg font-semibold text-foreground mb-4">Files</h2>
+                      <div className="space-y-2">
+                        {files.map((file) => (
+                          <div
+                            key={file.id}
+                            className="glass rounded-lg p-4 flex items-center justify-between group hover:bg-secondary/50 transition cursor-pointer"
+                            onClick={() => handleFileClick(file)}
+                          >
+                            <div className="flex items-center gap-3 flex-1 min-w-0">
+                              <File className={`w-5 h-5 flex-shrink-0 ${getFileIcon(file.file_type)}`} />
+                              <div className="flex-1 min-w-0">
+                                <h3 className="font-medium text-foreground truncate">{file.name}</h3>
+                                <p className="text-xs text-muted-foreground">
+                                  {formatFileSize(file.size_bytes)} • {formatDate(file.created_at)}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 ml-4">
+                              <span className="text-xs px-2 py-1 rounded bg-primary/20 text-primary">
+                                {file.file_type?.toUpperCase() || 'FILE'}
+                              </span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleDeleteFile(file.id)
+                                }}
+                                className="p-1 opacity-0 group-hover:opacity-100 transition hover:bg-red-500/20 rounded"
+                              >
+                                <Trash2 className="w-4 h-4 text-red-400" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {folders.length === 0 && files.length === 0 && (
+                    <div className="glass rounded-lg p-8 text-center">
+                      <Folder className="w-12 h-12 text-muted-foreground/50 mx-auto mb-4" />
+                      <h3 className="text-lg font-semibold text-foreground mb-1">No items yet</h3>
+                      <p className="text-muted-foreground">Create a folder or upload a file to get started</p>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+
           {/* New Folder Modal */}
           {showNewFolderModal && (
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
               <div className="glass rounded-lg p-6 max-w-md w-full">
                 <h2 className="text-xl font-semibold text-foreground mb-4">Create New Folder</h2>
-                <input
-                  type="text"
-                  value={newFolderName}
-                  onChange={(e) => setNewFolderName(e.target.value)}
-                  placeholder="Folder name"
-                  className="w-full px-4 py-2 bg-card border border-border rounded-lg text-foreground placeholder-muted-foreground mb-4 focus:outline-none focus:border-primary"
-                  autoFocus
-                  onKeyPress={(e) => e.key === "Enter" && handleCreateFolder()}
-                />
-                <div className="flex gap-2">
+                <div className="space-y-4">
+                  <input
+                    type="text"
+                    value={newFolderName}
+                    onChange={(e) => setNewFolderName(e.target.value)}
+                    placeholder="Folder name"
+                    className="w-full px-4 py-2 bg-card border border-border rounded-lg text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary"
+                    autoFocus
+                    onKeyPress={(e) => e.key === "Enter" && !creatingFolder && handleCreateFolder()}
+                  />
+                  <textarea
+                    value={newFolderDescription}
+                    onChange={(e) => setNewFolderDescription(e.target.value)}
+                    placeholder="Description (optional)"
+                    rows={3}
+                    className="w-full px-4 py-2 bg-card border border-border rounded-lg text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary resize-none"
+                  />
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-2">Department</label>
+                    <select
+                      value={newFolderDepartment}
+                      onChange={(e) => setNewFolderDepartment(e.target.value)}
+                      className="w-full px-4 py-2 bg-card border border-border rounded-lg text-foreground focus:outline-none focus:border-primary"
+                    >
+                      <option value="">Select Department (Optional)</option>
+                      {departments.map((dept) => (
+                        <option key={dept.id} value={dept.name}>
+                          {dept.name} {dept.code && `(${dept.code})`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-6">
                   <button
                     onClick={handleCreateFolder}
-                    className="flex-1 px-4 py-2 bg-primary hover:opacity-90 transition rounded-lg text-primary-foreground font-medium"
+                    disabled={!newFolderName.trim() || creatingFolder}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-primary hover:opacity-90 transition rounded-lg text-primary-foreground font-medium disabled:opacity-50"
                   >
-                    Create
+                    {creatingFolder ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Creating...
+                      </>
+                    ) : (
+                      'Create'
+                    )}
                   </button>
                   <button
-                    onClick={() => setShowNewFolderModal(false)}
-                    className="flex-1 px-4 py-2 bg-secondary hover:bg-secondary/80 transition rounded-lg text-foreground font-medium"
+                    onClick={() => {
+                      setShowNewFolderModal(false)
+                      setNewFolderName("")
+                      setNewFolderDescription("")
+                      setNewFolderDepartment("")
+                    }}
+                    disabled={creatingFolder}
+                    className="flex-1 px-4 py-2 bg-secondary hover:bg-secondary/80 transition rounded-lg text-foreground font-medium disabled:opacity-50"
                   >
                     Cancel
                   </button>
@@ -341,22 +871,29 @@ export default function Library() {
                 <div className="space-y-4 mb-6">
                   <div>
                     <label className="block text-sm font-medium text-foreground mb-2">Select File</label>
-                    <div className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-primary/50 transition cursor-pointer">
-                      <Upload className="w-8 h-8 text-muted-foreground/50 mx-auto mb-2" />
-                      <p className="text-sm text-muted-foreground">Drag and drop or click to select file</p>
-                      <p className="text-xs text-muted-foreground mt-1">Max size: 50 MB</p>
+                    <div className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-primary/50 transition">
+                      <input
+                        type="file"
+                        onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                        className="hidden"
+                        id="file-upload"
+                        accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.png,.jpg,.jpeg,.gif,.bmp,.tiff,.mp4,.mp3,.zip"
+                      />
+                      <label htmlFor="file-upload" className="cursor-pointer">
+                        <Upload className="w-8 h-8 text-muted-foreground/50 mx-auto mb-2" />
+                        {uploadFile ? (
+                          <div>
+                            <p className="text-sm text-foreground font-medium">{uploadFile.name}</p>
+                            <p className="text-xs text-muted-foreground">{formatFileSize(uploadFile.size)}</p>
+                          </div>
+                        ) : (
+                          <div>
+                            <p className="text-sm text-muted-foreground">Click to select file</p>
+                            <p className="text-xs text-muted-foreground mt-1">Max size: 50 MB</p>
+                          </div>
+                        )}
+                      </label>
                     </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">File Title</label>
-                    <input
-                      type="text"
-                      value={uploadFormData.title}
-                      onChange={(e) => setUploadFormData({ ...uploadFormData, title: e.target.value })}
-                      className="w-full px-4 py-2 bg-card border border-border rounded-lg text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary"
-                      placeholder="Enter document title"
-                    />
                   </div>
 
                   <div>
@@ -390,31 +927,24 @@ export default function Library() {
                         className="w-full px-4 py-2 bg-card border border-border rounded-lg text-foreground focus:outline-none focus:border-primary"
                       >
                         <option value="">Select Department</option>
-                        <option value="Engineering">Engineering</option>
-                        <option value="Product">Product</option>
-                        <option value="HR">HR</option>
-                        <option value="Finance">Finance</option>
-                        <option value="Marketing">Marketing</option>
+                        {departments.map((dept) => (
+                          <option key={dept.id} value={dept.name}>
+                            {dept.name} {dept.code && `(${dept.code})`}
+                          </option>
+                        ))}
                       </select>
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-foreground mb-2">File Type</label>
+                      <label className="block text-sm font-medium text-foreground mb-2">Visibility</label>
                       <select
-                        value={uploadFormData.fileType}
-                        onChange={(e) => setUploadFormData({ ...uploadFormData, fileType: e.target.value })}
+                        value={uploadFormData.visibility}
+                        onChange={(e) => setUploadFormData({ ...uploadFormData, visibility: e.target.value })}
                         className="w-full px-4 py-2 bg-card border border-border rounded-lg text-foreground focus:outline-none focus:border-primary"
                       >
-                        <option value="PDF">PDF</option>
-                        <option value="DOCX">DOCX</option>
-                        <option value="XLSX">XLSX</option>
-                        <option value="PPTX">PPTX</option>
-                        <option value="TXT">TXT</option>
-                        <option value="PNG">PNG</option>
-                        <option value="JPG">JPG</option>
-                        <option value="MP4">MP4</option>
-                        <option value="MP3">MP3</option>
-                        <option value="ZIP">ZIP</option>
+                        <option value="private">Private</option>
+                        <option value="org">Organization</option>
+                        <option value="public">Public</option>
                       </select>
                     </div>
                   </div>
@@ -422,24 +952,36 @@ export default function Library() {
 
                 <div className="flex gap-2">
                   <button
+                    onClick={handleUploadFile}
+                    disabled={!uploadFile || uploading}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-primary hover:opacity-90 transition rounded-lg text-primary-foreground font-medium disabled:opacity-50"
+                  >
+                    {uploading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Uploading...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4" />
+                        Upload
+                      </>
+                    )}
+                  </button>
+                  <button
                     onClick={() => {
                       setShowUploadModal(false)
+                      setUploadFile(null)
                       setUploadFormData({
-                        fileName: "",
                         title: "",
                         description: "",
                         tags: "",
                         department: "",
-                        fileType: "PDF",
+                        visibility: "private",
                       })
                     }}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-primary hover:opacity-90 transition rounded-lg text-primary-foreground font-medium"
-                  >
-                    <Upload className="w-4 h-4" /> Upload
-                  </button>
-                  <button
-                    onClick={() => setShowUploadModal(false)}
-                    className="flex-1 px-4 py-2 bg-secondary hover:bg-secondary/80 transition rounded-lg text-foreground font-medium"
+                    disabled={uploading}
+                    className="flex-1 px-4 py-2 bg-secondary hover:bg-secondary/80 transition rounded-lg text-foreground font-medium disabled:opacity-50"
                   >
                     Cancel
                   </button>
@@ -455,7 +997,7 @@ export default function Library() {
                   <div>
                     <h2 className="text-xl font-semibold text-foreground">{selectedFile.name}</h2>
                     <p className="text-sm text-muted-foreground mt-1">
-                      {selectedFile.type} • {selectedFile.size}
+                      {selectedFile.file_type?.toUpperCase() || 'FILE'} • {formatFileSize(selectedFile.size_bytes)}
                     </p>
                   </div>
                   <button onClick={() => setShowDetailModal(false)} className="p-1 hover:bg-secondary rounded">
@@ -464,39 +1006,44 @@ export default function Library() {
                 </div>
 
                 {/* Stats */}
-                <div className="grid grid-cols-2 gap-3 mb-6">
+                <div className="grid grid-cols-3 gap-3 mb-6">
                   <div className="bg-white/5 rounded-lg p-3">
                     <p className="text-xs text-muted-foreground mb-1">Views</p>
                     <p className="font-semibold text-foreground flex items-center gap-1">
-                      <Eye className="w-4 h-4" /> {selectedFile.views || 0}
+                      <Eye className="w-4 h-4" /> {selectedFile.view_count || 0}
+                    </p>
+                  </div>
+                  <div className="bg-white/5 rounded-lg p-3">
+                    <p className="text-xs text-muted-foreground mb-1">Downloads</p>
+                    <p className="font-semibold text-foreground flex items-center gap-1">
+                      <Download className="w-4 h-4" /> {selectedFile.download_count || 0}
                     </p>
                   </div>
                   <div className="bg-white/5 rounded-lg p-3">
                     <p className="text-xs text-muted-foreground mb-1">Uploaded</p>
-                    <p className="font-semibold text-foreground text-sm">{selectedFile.uploadDate}</p>
+                    <p className="font-semibold text-foreground text-sm">{formatDate(selectedFile.created_at)}</p>
                   </div>
                 </div>
 
                 {/* Uploader Info */}
-                {selectedFile.uploader && (
+                {selectedFile.uploaded_by_name && (
                   <div className="glass rounded-lg p-4 mb-6 border-l-4 border-primary">
                     <div className="flex items-center gap-3 mb-3">
                       <div className="w-10 h-10 bg-primary/20 rounded-full flex items-center justify-center">👤</div>
                       <div>
-                        <p className="font-semibold text-foreground">{selectedFile.uploader.name}</p>
-                        <p className="text-xs text-muted-foreground">{selectedFile.uploader.department}</p>
+                        <p className="font-semibold text-foreground">{selectedFile.uploaded_by_name}</p>
+                        <p className="text-xs text-muted-foreground">{selectedFile.department || 'Unknown Department'}</p>
                       </div>
                     </div>
                     <div className="space-y-2 text-sm text-muted-foreground">
                       <p className="flex items-center gap-2">
-                        <Mail className="w-4 h-4" /> {selectedFile.uploader.email}
+                        <Clock className="w-4 h-4" /> {new Date(selectedFile.created_at).toLocaleString()}
                       </p>
-                      <p className="flex items-center gap-2">
-                        <MapPin className="w-4 h-4" /> {selectedFile.uploader.location}
-                      </p>
-                      <p className="flex items-center gap-2">
-                        <Clock className="w-4 h-4" /> {selectedFile.uploader.timePosted}
-                      </p>
+                      {selectedFile.folder_name && (
+                        <p className="flex items-center gap-2">
+                          <Folder className="w-4 h-4" /> {selectedFile.folder_name}
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}
@@ -525,8 +1072,50 @@ export default function Library() {
                   </div>
                 )}
 
+                {/* File Info */}
+                <div className="mb-6">
+                  <h3 className="font-semibold text-foreground mb-2">File Information</h3>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <p className="text-muted-foreground">Original Name:</p>
+                      <p className="text-foreground">{selectedFile.name}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">MIME Type:</p>
+                      <p className="text-foreground">{selectedFile.mime_type}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Visibility:</p>
+                      <p className="text-foreground capitalize">{selectedFile.visibility}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Downloads:</p>
+                      <p className="text-foreground">{selectedFile.download_count || 0}</p>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Action Buttons */}
                 <div className="flex gap-2 pt-4 border-t border-border">
+                  <button
+                    onClick={handleGenerateAISummary}
+                    disabled={loadingAISummary}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500/20 to-blue-500/20 text-purple-400 rounded-lg hover:from-purple-500/30 hover:to-blue-500/30 transition text-sm disabled:opacity-50"
+                  >
+                    {loadingAISummary ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                        </svg>
+                        AI Summary
+                      </>
+                    )}
+                  </button>
                   <button
                     onClick={() => {
                       setShowShareModal(true)
@@ -546,6 +1135,13 @@ export default function Library() {
                     <Download className="w-4 h-4" /> Download
                   </button>
                 </div>
+
+                {/* AI Summary Error */}
+                {aiSummaryError && (
+                  <div className="mt-4 p-3 bg-red-500/20 border border-red-500/30 rounded-lg">
+                    <p className="text-red-400 text-sm">{aiSummaryError}</p>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -587,12 +1183,12 @@ export default function Library() {
                     <button
                       key={format}
                       className={`w-full px-4 py-2 rounded-lg transition text-sm font-medium ${
-                        format === selectedFile.type
+                        format === selectedFile.file_type?.toUpperCase()
                           ? "bg-primary text-primary-foreground"
                           : "bg-secondary hover:bg-secondary/80 text-foreground"
                       }`}
                     >
-                      {format} {format === selectedFile.type && "(Original)"}
+                      {format} {format === selectedFile.file_type?.toUpperCase() && "(Original)"}
                     </button>
                   ))}
                 </div>
@@ -612,7 +1208,7 @@ export default function Library() {
                 <div className="flex items-start justify-between mb-4">
                   <div>
                     <h2 className="text-xl font-semibold text-foreground">{selectedFileForPreview.name}</h2>
-                    <p className="text-sm text-muted-foreground mt-1">Preview • {selectedFileForPreview.type}</p>
+                    <p className="text-sm text-muted-foreground mt-1">Preview • {selectedFileForPreview.file_type}</p>
                   </div>
                   <button onClick={() => setShowPreviewModal(false)} className="p-1 hover:bg-secondary rounded">
                     <X className="w-5 h-5 text-muted-foreground" />
@@ -622,7 +1218,7 @@ export default function Library() {
                 {/* Preview Content */}
                 <div className="bg-white/5 rounded-lg p-12 text-center min-h-96 flex items-center justify-center">
                   <div>
-                    <p className="text-3xl mb-4">{getFilePreview(selectedFileForPreview.type)}</p>
+                    <File className="w-16 h-16 text-muted-foreground/50 mx-auto mb-4" />
                     <p className="text-muted-foreground">
                       {selectedFileForPreview.description || "File preview would display here"}
                     </p>
@@ -633,8 +1229,7 @@ export default function Library() {
                   <button
                     onClick={() => {
                       setShowPreviewModal(false)
-                      handleOpenFileDetails(selectedFileForPreview)
-                      setShowDetailModal(true)
+                      handleFileClick(selectedFileForPreview)
                     }}
                     className="flex-1 px-4 py-2 bg-primary hover:opacity-90 transition rounded-lg text-primary-foreground font-medium"
                   >
@@ -651,15 +1246,73 @@ export default function Library() {
             </div>
           )}
 
+          {showAISummaryModal && selectedFile && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="glass rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <h2 className="text-xl font-semibold text-foreground flex items-center gap-2">
+                      <svg className="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                      </svg>
+                      AI Summary
+                    </h2>
+                    <p className="text-sm text-muted-foreground mt-1">{selectedFile.name}</p>
+                  </div>
+                  <button onClick={() => setShowAISummaryModal(false)} className="p-1 hover:bg-secondary rounded">
+                    <X className="w-5 h-5 text-muted-foreground" />
+                  </button>
+                </div>
+
+                {/* AI Summary Content */}
+                <div className="bg-gradient-to-br from-purple-500/10 to-blue-500/10 rounded-lg p-6 border border-purple-500/20">
+                  <div className="prose prose-sm max-w-none text-foreground">
+                    {aiSummary ? (
+                      <div className="whitespace-pre-wrap leading-relaxed">
+                        {aiSummary}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8">
+                        <div className="w-12 h-12 border-2 border-purple-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                        <p className="text-muted-foreground">Generating AI summary...</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex gap-2 mt-6">
+                  <button
+                    onClick={() => {
+                      if (aiSummary) {
+                        navigator.clipboard.writeText(aiSummary)
+                        showToast("📋 AI summary copied to clipboard!", "success", 3000)
+                      }
+                    }}
+                    disabled={!aiSummary}
+                    className="flex-1 px-4 py-2 bg-primary/20 text-primary hover:bg-primary/30 transition rounded-lg font-medium disabled:opacity-50"
+                  >
+                    Copy Summary
+                  </button>
+                  <button
+                    onClick={() => setShowAISummaryModal(false)}
+                    className="flex-1 px-4 py-2 bg-secondary hover:bg-secondary/80 transition rounded-lg text-foreground font-medium"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {searchQuery ? (
             <>
               {hasResults ? (
                 <div className="space-y-8">
-                  {filteredFolders.length > 0 && (
+                  {folders.length > 0 && (
                     <div>
-                      <h2 className="text-lg font-semibold text-foreground mb-4">Folders ({filteredFolders.length})</h2>
+                      <h2 className="text-lg font-semibold text-foreground mb-4">Folders ({folders.length})</h2>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                        {filteredFolders.map((folder) => (
+                        {folders.map((folder) => (
                           <div
                             key={folder.id}
                             className="glass rounded-lg p-4 hover:bg-secondary/50 transition cursor-pointer group relative"
@@ -668,7 +1321,7 @@ export default function Library() {
                               <Folder className="w-8 h-8 text-yellow-400" />
                               <div className="flex-1 min-w-0">
                                 <h3 className="font-medium text-foreground truncate">{folder.name}</h3>
-                                <p className="text-xs text-muted-foreground">{folder.fileCount} items</p>
+                                <p className="text-xs text-muted-foreground">{folder.file_count || 0} items</p>
                               </div>
                             </div>
                             <button
@@ -686,27 +1339,29 @@ export default function Library() {
                     </div>
                   )}
 
-                  {filteredFiles.length > 0 && (
+                  {files.length > 0 && (
                     <div>
-                      <h2 className="text-lg font-semibold text-foreground mb-4">Files ({filteredFiles.length})</h2>
+                      <h2 className="text-lg font-semibold text-foreground mb-4">Files ({files.length})</h2>
                       <div className="space-y-2">
-                        {filteredFiles.map((file) => (
+                        {files.map((file) => (
                           <div
                             key={file.id}
                             className="glass rounded-lg p-4 flex items-center justify-between group hover:bg-secondary/50 transition cursor-pointer"
-                            onClick={() => handleOpenFileDetails(file)}
+                            onClick={() => handleFileClick(file)}
                           >
                             <div className="flex items-center gap-3 flex-1 min-w-0">
-                              <File className={`w-5 h-5 flex-shrink-0 ${getFileIcon(file.type)}`} />
+                              <File className={`w-5 h-5 flex-shrink-0 ${getFileIcon(file.file_type)}`} />
                               <div className="flex-1 min-w-0">
                                 <h3 className="font-medium text-foreground truncate">{file.name}</h3>
                                 <p className="text-xs text-muted-foreground">
-                                  {file.size} • {file.uploadDate}
+                                  {formatFileSize(file.size_bytes)} • {formatDate(file.created_at)}
                                 </p>
                               </div>
                             </div>
                             <div className="flex items-center gap-2 ml-4">
-                              <span className="text-xs px-2 py-1 rounded bg-primary/20 text-primary">{file.type}</span>
+                              <span className="text-xs px-2 py-1 rounded bg-primary/20 text-primary">
+                                {file.file_type?.toUpperCase() || 'FILE'}
+                              </span>
                             </div>
                           </div>
                         ))}
@@ -724,11 +1379,11 @@ export default function Library() {
             </>
           ) : (
             <>
-              {subFolders.length > 0 && (
+              {folders.length > 0 && (
                 <div className="mb-8">
                   <h2 className="text-lg font-semibold text-foreground mb-4">Folders</h2>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {subFolders.map((folder) => (
+                    {folders.map((folder) => (
                       <div
                         key={folder.id}
                         className="glass rounded-lg p-4 hover:bg-secondary/50 transition cursor-pointer group relative"
@@ -737,7 +1392,7 @@ export default function Library() {
                           <Folder className="w-8 h-8 text-yellow-400" />
                           <div className="flex-1 min-w-0">
                             <h3 className="font-medium text-foreground truncate">{folder.name}</h3>
-                            <p className="text-xs text-muted-foreground">{folder.fileCount} items</p>
+                            <p className="text-xs text-muted-foreground">{folder.file_count || 0} items</p>
                           </div>
                         </div>
                         <button
@@ -755,27 +1410,29 @@ export default function Library() {
                 </div>
               )}
 
-              {currentFiles.length > 0 && (
+              {files.length > 0 && (
                 <div>
                   <h2 className="text-lg font-semibold text-foreground mb-4">Files</h2>
                   <div className="space-y-2">
-                    {currentFiles.map((file) => (
+                    {files.map((file) => (
                       <div
                         key={file.id}
                         className="glass rounded-lg p-4 flex items-center justify-between group hover:bg-secondary/50 transition cursor-pointer"
-                        onClick={() => handleOpenFileDetails(file)}
+                        onClick={() => handleFileClick(file)}
                       >
                         <div className="flex items-center gap-3 flex-1 min-w-0">
-                          <File className={`w-5 h-5 flex-shrink-0 ${getFileIcon(file.type)}`} />
+                          <File className={`w-5 h-5 flex-shrink-0 ${getFileIcon(file.file_type)}`} />
                           <div className="flex-1 min-w-0">
                             <h3 className="font-medium text-foreground truncate">{file.name}</h3>
                             <p className="text-xs text-muted-foreground">
-                              {file.size} • {file.uploadDate}
+                              {formatFileSize(file.size_bytes)} • {formatDate(file.created_at)}
                             </p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 ml-4">
-                          <span className="text-xs px-2 py-1 rounded bg-primary/20 text-primary">{file.type}</span>
+                          <span className="text-xs px-2 py-1 rounded bg-primary/20 text-primary">
+                            {file.file_type?.toUpperCase() || 'FILE'}
+                          </span>
                           <button
                             onClick={(e) => {
                               e.stopPropagation()
@@ -786,27 +1443,13 @@ export default function Library() {
                             <Trash2 className="w-4 h-4 text-red-400" />
                           </button>
                         </div>
-                        <div className="flex gap-2 mt-4">
-                          <button
-                            onClick={() => handlePreviewFile(file)}
-                            className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-primary/20 text-primary rounded-lg hover:bg-primary/30 transition text-sm"
-                          >
-                            <Eye className="w-4 h-4" /> Preview
-                          </button>
-                          <button
-                            onClick={() => handleOpenFileDetails(file)}
-                            className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-primary/20 text-primary rounded-lg hover:bg-primary/30 transition text-sm"
-                          >
-                            <Share2 className="w-4 h-4" /> Details
-                          </button>
-                        </div>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
-              {subFolders.length === 0 && currentFiles.length === 0 && (
+              {folders.length === 0 && files.length === 0 && (
                 <div className="glass rounded-lg p-8 text-center">
                   <Folder className="w-12 h-12 text-muted-foreground/50 mx-auto mb-4" />
                   <h3 className="text-lg font-semibold text-foreground mb-1">No items yet</h3>

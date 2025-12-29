@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
+import { NextRequest } from 'next/server'
 import { executeQuery, executeSingle } from './database'
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-key'
@@ -38,6 +39,13 @@ export interface JWTPayload {
   type: 'organization' | 'employee'
   organizationId?: number
   tokenVersion: number
+  userId?: number // Add userId for backward compatibility
+}
+
+export interface AuthResult {
+  success: boolean
+  user?: JWTPayload
+  error?: string
 }
 
 // Hash password
@@ -62,6 +70,35 @@ export function verifyToken(token: string): JWTPayload | null {
     return jwt.verify(token, JWT_SECRET) as JWTPayload
   } catch (error) {
     return null
+  }
+}
+
+// Authenticate request from cookie
+export function authenticateRequest(request: NextRequest): AuthResult {
+  try {
+    // Get token from cookie
+    const token = request.cookies.get('auth-token')?.value
+    
+    if (!token) {
+      return { success: false, error: 'Authentication required' }
+    }
+
+    // Verify token
+    const decoded = verifyToken(token)
+    if (!decoded) {
+      return { success: false, error: 'Invalid or expired token' }
+    }
+
+    // Add userId for backward compatibility
+    const user = {
+      ...decoded,
+      userId: decoded.id,
+      organizationId: decoded.organizationId || decoded.id
+    }
+
+    return { success: true, user }
+  } catch (error) {
+    return { success: false, error: 'Authentication failed' }
   }
 }
 
@@ -237,4 +274,39 @@ export async function getEmployeeWithOrganizationAndDepartment(id: number): Prom
   `
   const results = await executeQuery<Employee & { organizationName: string; organizationCode: string; departmentName?: string }>(query, [id])
   return results.length > 0 ? results[0] : null
+}
+
+// Get or create system employee for organization admin
+export async function getOrCreateSystemEmployee(organizationId: number, adminEmail: string): Promise<number> {
+  const systemEmployeeEmail = `admin-${organizationId}@system.internal`
+  
+  try {
+    // Check if system employee record exists
+    const existingSystemEmployee = await executeQuery(`
+      SELECT id FROM organization_employees 
+      WHERE organization_id = ? AND email = ? AND status = 1
+    `, [organizationId, systemEmployeeEmail])
+    
+    if (existingSystemEmployee.length > 0) {
+      return existingSystemEmployee[0].id
+    }
+    
+    // Create system employee record for organization admin
+    const result = await executeSingle(`
+      INSERT INTO organization_employees (
+        organization_id, full_name, email, password_hash, status
+      ) VALUES (?, ?, ?, ?, ?)
+    `, [
+      organizationId,
+      `System Admin (${adminEmail})`,
+      systemEmployeeEmail,
+      'system-admin-no-password', // Placeholder password hash
+      1
+    ])
+    
+    return result.insertId
+  } catch (error) {
+    console.error('Error creating system employee for admin:', error)
+    throw error
+  }
 }

@@ -1,0 +1,100 @@
+{
+  "mappings": {
+    "properties": {
+      "organization_id": { 
+        "type": "keyword",
+        "index": true
+      },
+      "file_id": { 
+        "type": "keyword",
+        "index": true
+      },
+      "folder_id": { 
+        "type": "keyword",
+        "index": true
+      },
+      "employee_id": { 
+        "type": "keyword",
+        "index": true
+      },
+      "action": { 
+        "type": "keyword",
+        "index": true
+      },
+      "details": { 
+        "type": "object",
+        "dynamic": true
+      },
+      "ip_address": { 
+        "type": "ip",
+        "index": true
+      },
+      "user_agent": { 
+        "type": "text",
+        "analyzer": "keyword",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 512
+          }
+        }
+      },
+      "session_id": {
+        "type": "keyword",
+        "index": true
+      },
+      "request_id": {
+        "type": "keyword",
+        "index": true
+      },
+      "timestamp": { 
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis"
+      },
+      "duration_ms": {
+        "type": "integer",
+        "index": true
+      },
+      "status": {
+        "type": "keyword",
+        "index": true
+      },
+      "error_message": {
+        "type": "text",
+        "analyzer": "standard"
+      },
+      "resource_type": {
+        "type": "keyword",
+        "index": true
+      },
+      "resource_id": {
+        "type": "keyword",
+        "index": true
+      },
+      "before_state": {
+        "type": "object",
+        "enabled": false
+      },
+      "after_state": {
+        "type": "object",
+        "enabled": false
+      },
+      "metadata": {
+        "type": "object",
+        "properties": {
+          "file_size": { "type": "long" },
+          "file_type": { "type": "keyword" },
+          "department": { "type": "keyword" },
+          "tags": { "type": "keyword" }
+        }
+      }
+    }
+  },
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 1,
+    "refresh_interval": "1s",
+    "index.lifecycle.name": "audit_logs_policy",
+    "index.lifecycle.rollover_alias": "audit_logs"
+  }
+}

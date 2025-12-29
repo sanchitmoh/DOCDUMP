@@ -6,7 +6,7 @@ const dbConfig = {
   port: parseInt(process.env.DB_PORT || '3306'),
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'Coprate_Digital_library',
+  database: process.env.DB_NAME || 'coprate_digital_library',
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
@@ -33,7 +33,16 @@ export async function executeQuery<T = any>(
     return rows as T[]
   } catch (error) {
     console.error('Database query error:', error)
-    throw new Error('Database operation failed')
+    console.error('Query:', query)
+    console.error('Params:', params)
+    
+    // Provide more specific error information
+    if (error instanceof Error) {
+      console.error('Error message:', error.message)
+      console.error('Error stack:', error.stack)
+    }
+    
+    throw error // Re-throw the original error instead of a generic one
   }
 }
 
@@ -48,7 +57,16 @@ export async function executeSingle(
     return result as mysql.ResultSetHeader
   } catch (error) {
     console.error('Database query error:', error)
-    throw new Error('Database operation failed')
+    console.error('Query:', query)
+    console.error('Params:', params)
+    
+    // Provide more specific error information
+    if (error instanceof Error) {
+      console.error('Error message:', error.message)
+      console.error('Error stack:', error.stack)
+    }
+    
+    throw error // Re-throw the original error instead of a generic one
   }
 }
 
@@ -57,9 +75,35 @@ export async function testConnection(): Promise<boolean> {
   try {
     const pool = getPool()
     await pool.execute('SELECT 1')
+    console.log('Database connection successful')
     return true
   } catch (error) {
     console.error('Database connection test failed:', error)
+    return false
+  }
+}
+
+// Initialize database (create database if it doesn't exist)
+export async function initializeDatabase(): Promise<boolean> {
+  try {
+    // First try to connect without specifying a database
+    const initConfig = {
+      ...dbConfig,
+      database: undefined, // Don't specify database initially
+    }
+    
+    const initPool = mysql.createPool(initConfig)
+    
+    // Create database if it doesn't exist
+    await initPool.execute(`CREATE DATABASE IF NOT EXISTS \`${dbConfig.database}\``)
+    console.log(`Database '${dbConfig.database}' created or already exists`)
+    
+    await initPool.end()
+    
+    // Now test the connection with the database
+    return await testConnection()
+  } catch (error) {
+    console.error('Database initialization failed:', error)
     return false
   }
 }

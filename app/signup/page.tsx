@@ -4,8 +4,10 @@ import Link from 'next/link'
 import { Navbar } from '@/components/navbar'
 import { Footer } from '@/components/footer'
 import { useState, useEffect, useRef } from 'react'
-import { Mail, Lock, User, ArrowRight, CheckCircle2, Zap } from 'lucide-react'
+import { Mail, Lock, User, ArrowRight, CheckCircle2, Zap, Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '@/context/auth-context'
+import { useToast } from '@/hooks/use-toast'
+import { useRouter } from 'next/navigation'
 
 declare global {
   interface Window {
@@ -15,9 +17,13 @@ declare global {
 
 export default function Signup() {
   const [formData, setFormData] = useState({ name: '', email: '', password: '', confirmPassword: '' })
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [mounted, setMounted] = useState(false)
   const { signUp } = useAuth()
+  const { addToast } = useToast()
+  const router = useRouter()
   const formRef = useRef<HTMLDivElement | null>(null)
   const inputWrapperClass =
     'group flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3 transition focus-within:border-cyan-400/70 focus-within:shadow-[0_20px_50px_rgba(6,182,212,0.25)]'
@@ -55,15 +61,38 @@ export default function Signup() {
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (formData.password !== formData.confirmPassword) {
-      alert('Passwords do not match!')
+    
+    if (!formData.name || !formData.email || !formData.password || !formData.confirmPassword) {
+      addToast('Please fill in all fields', 'error')
       return
     }
+    
+    if (formData.password !== formData.confirmPassword) {
+      addToast('Passwords do not match!', 'error')
+      return
+    }
+    
+    if (formData.password.length < 8) {
+      addToast('Password must be at least 8 characters', 'error')
+      return
+    }
+    
     setIsLoading(true)
-    setTimeout(() => {
+    
+    try {
+      const result = await signUp(formData.email, formData.password, formData.name)
+      
+      if (result.success) {
+        addToast('Registration successful! Please check your email to verify your account.', 'success')
+        router.push('/login')
+      } else {
+        addToast(result.message || 'Registration failed', 'error')
+      }
+    } catch (error) {
+      addToast('An unexpected error occurred', 'error')
+    } finally {
       setIsLoading(false)
-      signUp(formData.email, formData.password, formData.name)
-    }, 1500)
+    }
   }
 
   if (!mounted) return null
@@ -127,14 +156,22 @@ export default function Signup() {
                   <div className={inputWrapperClass}>
                     <Lock className="w-5 h-5 text-cyan-400/70 transition group-focus-within:text-cyan-300" />
                     <input
-                      type="password"
+                      type={showPassword ? "text" : "password"}
                       value={formData.password}
                       onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                       placeholder="••••••••"
                       className={textInputClass}
                       required
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="text-cyan-400/70 hover:text-cyan-300 transition-colors"
+                    >
+                      {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
                   </div>
+                  <p className="text-xs text-muted-foreground mt-2">Minimum 8 characters</p>
                 </div>
 
                 {/* Confirm Password */}
@@ -143,13 +180,20 @@ export default function Signup() {
                   <div className={inputWrapperClass}>
                     <Lock className="w-5 h-5 text-cyan-400/70 transition group-focus-within:text-cyan-300" />
                     <input
-                      type="password"
+                      type={showConfirmPassword ? "text" : "password"}
                       value={formData.confirmPassword}
                       onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
                       placeholder="••••••••"
                       className={textInputClass}
                       required
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      className="text-cyan-400/70 hover:text-cyan-300 transition-colors"
+                    >
+                      {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
                   </div>
                 </div>
 

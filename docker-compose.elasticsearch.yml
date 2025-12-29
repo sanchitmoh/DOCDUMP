@@ -1,0 +1,168 @@
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: corporate-elasticsearch
+    environment:
+      # Node Configuration
+      - node.name=corporate-es-node
+      - cluster.name=corporate-digital-library
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      
+      # Memory Configuration
+      - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
+      
+      # Security Configuration
+      - xpack.security.enabled=true
+      - xpack.security.authc.api_key.enabled=true
+      - ELASTIC_PASSWORD=CorporateLib2024!
+      
+      # SSL/TLS Configuration (disabled for development)
+      - xpack.security.transport.ssl.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      
+      # License Configuration
+      - xpack.license.self_generated.type=basic
+      
+      # Performance Settings
+      - indices.memory.index_buffer_size=10%
+      - indices.memory.min_index_buffer_size=48mb
+      - thread_pool.write.queue_size=1000
+      - thread_pool.search.queue_size=1000
+      
+      # Logging
+      - logger.org.elasticsearch.deprecation=warn
+      
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+      - elasticsearch_logs:/usr/share/elasticsearch/logs
+      - ./elasticsearch/config:/usr/share/elasticsearch/config:ro
+      - ./elasticsearch/plugins:/usr/share/elasticsearch/plugins
+    
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    
+    networks:
+      - elastic
+    
+    healthcheck:
+      test: ["CMD-SHELL", "curl -u elastic:CorporateLib2024! -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    
+    restart: unless-stopped
+    
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+        reservations:
+          memory: 2g
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: corporate-kibana
+    environment:
+      # Elasticsearch Configuration
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=elastic
+      - ELASTICSEARCH_PASSWORD=CorporateLib2024!
+      
+      # Kibana Configuration
+      - SERVER_NAME=corporate-kibana
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=5601
+      
+      # Security Configuration
+      - XPACK_SECURITY_ENABLED=true
+      - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=a7a6311933d3503b89bc2dbc36572c33a6c10925682e591bffcab6911c06786d
+      
+      # Monitoring
+      - XPACK_MONITORING_ENABLED=true
+      - XPACK_MONITORING_COLLECTION_ENABLED=true
+      
+      # Logging
+      - LOGGING_QUIET=false
+      - LOGGING_VERBOSE=false
+    
+    volumes:
+      - kibana_data:/usr/share/kibana/data
+      - ./kibana/config:/usr/share/kibana/config:ro
+    
+    ports:
+      - "5601:5601"
+    
+    networks:
+      - elastic
+    
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5601/api/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    
+    restart: unless-stopped
+    
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+        reservations:
+          memory: 512m
+
+  # Optional: Elasticsearch Head plugin for cluster management
+  elasticsearch-head:
+    image: mobz/elasticsearch-head:5
+    container_name: corporate-es-head
+    ports:
+      - "9100:9100"
+    networks:
+      - elastic
+    depends_on:
+      - elasticsearch
+    restart: unless-stopped
+
+volumes:
+  elasticsearch_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./elasticsearch/data
+  
+  elasticsearch_logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./elasticsearch/logs
+  
+  kibana_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./kibana/data
+
+networks:
+  elastic:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

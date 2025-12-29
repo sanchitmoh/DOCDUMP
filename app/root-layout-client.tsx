@@ -5,17 +5,12 @@ import { AIChatbox } from "@/components/ai-chatbox"
 import { AuthProvider } from "@/context/auth-context"
 import { VideoBackground } from "@/components/video-background"
 import { ToastContainer } from "@/components/toast-container"
+import { ToastProvider } from "@/context/toast-context"
 import { useToast } from "@/hooks/use-toast"
 
-function ToastProvider({ children }: { children: React.ReactNode }) {
+function ToastContainerWrapper() {
   const { toasts, removeToast } = useToast()
-
-  return (
-    <>
-      {children}
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
-    </>
-  )
+  return <ToastContainer toasts={toasts} onRemove={removeToast} />
 }
 
 export function RootLayoutClient({
@@ -29,6 +24,7 @@ export function RootLayoutClient({
         <VideoBackground />
         <AIChatbox />
         <div className="relative z-10">{children}</div>
+        <ToastContainerWrapper />
       </ToastProvider>
     </AuthProvider>
   )
