@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { authenticateRequest } from '@/lib/auth'
+import { authenticateRequest, verifyToken } from '@/lib/auth'
 import { executeQuery, executeSingle } from '@/lib/database'
 
 export async function GET(request: NextRequest) {
@@ -21,12 +21,13 @@ export async function GET(request: NextRequest) {
           f.id,
           f.name as title,
           f.created_at as date,
-          f.status,
+          f.is_active as active,
           f.view_count as views,
           f.download_count as downloads,
           f.department,
           f.file_type as type,
           f.tags,
+          f.visibility,
           COALESCE(oe.full_name, 'Organization') as author
         FROM files f
         LEFT JOIN organization_employees oe ON f.created_by = oe.id
@@ -40,12 +41,13 @@ export async function GET(request: NextRequest) {
           f.id,
           f.name as title,
           f.created_at as date,
-          f.status,
+          f.is_active as active,
           f.view_count as views,
           f.download_count as downloads,
           f.department,
           f.file_type as type,
           f.tags,
+          f.visibility,
           oe.full_name as author
         FROM files f
         LEFT JOIN organization_employees oe ON f.created_by = oe.id
@@ -55,14 +57,38 @@ export async function GET(request: NextRequest) {
     }
 
     // Format the data
-    const formattedContributions = contributions.map(doc => ({
-      ...doc,
-      type: doc.type?.toUpperCase() || 'FILE',
-      tags: doc.tags ? JSON.parse(doc.tags) : [],
-      status: doc.status || 'published',
-      views: doc.views || 0,
-      downloads: doc.downloads || 0
-    }))
+    const formattedContributions = contributions.map(doc => {
+      let tags = []
+      
+      // Handle tags with proper error handling
+      if (doc.tags) {
+        if (Array.isArray(doc.tags)) {
+          // Already an array (MySQL might return parsed JSON)
+          tags = doc.tags
+        } else if (typeof doc.tags === 'string') {
+          try {
+            // Try to parse as JSON
+            const parsed = JSON.parse(doc.tags)
+            tags = Array.isArray(parsed) ? parsed : [parsed]
+          } catch (error) {
+            // If JSON parsing fails, treat as comma-separated string
+            tags = doc.tags.split(',').map((tag: string) => tag.trim()).filter(Boolean)
+          }
+        } else {
+          // Convert other types to string and split
+          tags = String(doc.tags).split(',').map((tag: string) => tag.trim()).filter(Boolean)
+        }
+      }
+      
+      return {
+        ...doc,
+        type: doc.type?.toUpperCase() || 'FILE',
+        tags,
+        status: doc.visibility === 'private' ? 'draft' : 'published', // Map visibility to status
+        views: doc.views || 0,
+        downloads: doc.downloads || 0
+      }
+    })
 
     return NextResponse.json({
       success: true,
@@ -93,7 +119,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const { userId, organizationId, userType } = decoded
-    const { fileId, title, description, tags, department, status } = await request.json()
+    const { fileId, title, description, tags, department, visibility } = await request.json()
 
     if (!fileId || !title) {
       return NextResponse.json({ error: 'File ID and title are required' }, { status: 400 })
@@ -117,14 +143,14 @@ export async function PUT(request: NextRequest) {
     // Update file
     await executeSingle(`
       UPDATE files 
-      SET name = ?, description = ?, tags = ?, department = ?, status = ?
+      SET name = ?, description = ?, tags = ?, department = ?, visibility = ?
       WHERE id = ?
     `, [
       title,
       description || null,
       tags ? JSON.stringify(tags.split(',').map((t: string) => t.trim())) : null,
       department || null,
-      status || 'published',
+      visibility || 'private',
       fileId
     ])
 

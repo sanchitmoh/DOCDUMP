@@ -21,6 +21,7 @@ export function Navbar({ currentPage }: NavbarProps) {
     if (pathname.includes("admin/profile")) return "Admin Profile"
     if (pathname.includes("admin") && !pathname.includes("analytics") && !pathname.includes("people")) return "Admin Dashboard"
     if (pathname.includes("dashboard")) return "Dashboard"
+    if (pathname.includes("search")) return "Search"
     if (pathname.includes("library")) return "Library"
     if (pathname.includes("saved")) return "Saved Documents"
     if (pathname.includes("contributions")) return "Your Contributions"
@@ -70,6 +71,9 @@ export function Navbar({ currentPage }: NavbarProps) {
                   <Link href="/admin/people" className={getNavLinkClass("/admin/people")}>
                     People
                   </Link>
+                  <Link href="/search" className={getNavLinkClass("/search")}>
+                    Search
+                  </Link>
                   <Link href="/library" className={getNavLinkClass("/library")}>
                     Library
                   </Link>
@@ -84,6 +88,9 @@ export function Navbar({ currentPage }: NavbarProps) {
                 <>
                   <Link href="/dashboard" className={getNavLinkClass("/dashboard")}>
                     Dashboard
+                  </Link>
+                  <Link href="/search" className={getNavLinkClass("/search")}>
+                    Search
                   </Link>
                   <Link href="/library" className={getNavLinkClass("/library")}>
                     Library
@@ -195,6 +202,9 @@ export function Navbar({ currentPage }: NavbarProps) {
                     >
                       People
                     </Link>
+                    <Link href="/search" className="block px-4 py-2 text-foreground hover:bg-secondary rounded transition">
+                      Search
+                    </Link>
                     <Link href="/library" className="block px-4 py-2 text-foreground hover:bg-secondary rounded transition">
                       Library
                     </Link>
@@ -218,6 +228,9 @@ export function Navbar({ currentPage }: NavbarProps) {
                       className="block px-4 py-2 text-foreground hover:bg-secondary rounded transition"
                     >
                       Dashboard
+                    </Link>
+                    <Link href="/search" className="block px-4 py-2 text-foreground hover:bg-secondary rounded transition">
+                      Search
                     </Link>
                     <Link href="/library" className="block px-4 py-2 text-foreground hover:bg-secondary rounded transition">
                       Library

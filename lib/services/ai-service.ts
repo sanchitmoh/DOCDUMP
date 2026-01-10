@@ -1,4 +1,5 @@
 import OpenAI from 'openai'
+import { extractJsonFromAIResponse } from '../utils'
 
 // Debug logger utility
 const debug = {
@@ -322,7 +323,7 @@ Provide analysis as JSON.`
       const result = response.choices[0]?.message?.content?.trim()
       if (!result) throw new Error('No analysis generated')
 
-      const analysis = JSON.parse(result)
+      const analysis = extractJsonFromAIResponse(result)
       debug.success('ANALYZE', 'Document analysis completed', analysis)
 
       return analysis

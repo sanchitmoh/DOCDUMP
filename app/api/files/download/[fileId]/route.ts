@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createHybridStorageService } from '@/lib/services/hybrid-storage'
 import { createFileService } from '@/lib/services/file-service'
 import { executeQuery } from '@/lib/database'
-import { verifyToken } from '@/lib/auth'
+import { verifyToken, authenticateRequest } from '@/lib/auth'
 
 // Helper function to check download permissions
 function checkDownloadPermission(file: any, userId: number, userType: string): boolean {
@@ -50,17 +50,24 @@ export async function GET(
       return NextResponse.json({ error: 'Invalid file ID' }, { status: 400 })
     }
 
-    // Verify authentication
+    // Verify authentication - support both token and cookie auth
+    let decoded
     const token = request.headers.get('authorization')?.replace('Bearer ', '') ||
                   request.nextUrl.searchParams.get('token')
     
-    if (!token) {
-      return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
-    }
-
-    const decoded = verifyToken(token)
-    if (!decoded) {
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 })
+    if (token) {
+      // Token-based auth
+      decoded = verifyToken(token)
+      if (!decoded) {
+        return NextResponse.json({ error: 'Invalid token' }, { status: 401 })
+      }
+    } else {
+      // Cookie-based auth
+      const auth = authenticateRequest(request)
+      if (!auth.success || !auth.user) {
+        return NextResponse.json({ error: auth.error || 'Authentication required' }, { status: 401 })
+      }
+      decoded = auth.user
     }
 
     const { userId, type: userType, organizationId } = decoded
@@ -125,14 +132,30 @@ export async function GET(
       preferredStorage
     )
 
+    console.log('File data retrieved:', {
+      hasBuffer: !!fileData?.buffer,
+      bufferLength: fileData?.buffer?.length,
+      storageType: fileData?.storageType,
+      source: fileData?.source,
+      fileDataKeys: Object.keys(fileData || {})
+    })
+
+    if (!fileData || !fileData.buffer) {
+      console.error('File data or buffer is missing:', fileData)
+      return NextResponse.json({ 
+        error: 'File content not found or corrupted',
+        details: 'File data retrieval failed'
+      }, { status: 404 })
+    }
+
     // Set appropriate headers
     const headers = new Headers()
     headers.set('Content-Type', file.mime_type || 'application/octet-stream')
     headers.set('Content-Length', fileData.buffer.length.toString())
     headers.set('Content-Disposition', `attachment; filename="${encodeURIComponent(file.name)}"`)
     headers.set('Cache-Control', 'private, max-age=3600')
-    headers.set('X-Storage-Source', fileData.storageType)
-    headers.set('X-Source-Type', fileData.source)
+    headers.set('X-Storage-Source', fileData.storageType || 'unknown')
+    headers.set('X-Source-Type', fileData.source || 'unknown')
 
     // Add checksum header for integrity verification
     if (file.checksum_sha256) {
@@ -165,17 +188,24 @@ export async function HEAD(
       return new NextResponse(null, { status: 400 })
     }
 
-    // Verify authentication
+    // Verify authentication - support both token and cookie auth
+    let decoded
     const token = request.headers.get('authorization')?.replace('Bearer ', '') ||
                   request.nextUrl.searchParams.get('token')
     
-    if (!token) {
-      return new NextResponse(null, { status: 401 })
-    }
-
-    const decoded = verifyToken(token)
-    if (!decoded) {
-      return new NextResponse(null, { status: 401 })
+    if (token) {
+      // Token-based auth
+      decoded = verifyToken(token)
+      if (!decoded) {
+        return new NextResponse(null, { status: 401 })
+      }
+    } else {
+      // Cookie-based auth
+      const auth = authenticateRequest(request)
+      if (!auth.success || !auth.user) {
+        return new NextResponse(null, { status: 401 })
+      }
+      decoded = auth.user
     }
 
     const { userId, type: userType, organizationId } = decoded

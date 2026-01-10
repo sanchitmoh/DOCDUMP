@@ -2,8 +2,10 @@
 
 import { Navbar } from "@/components/navbar"
 import { Footer } from "@/components/footer"
+import { EnhancedFileItem } from "@/components/enhanced-file-item"
 import { useState, useEffect } from "react"
 import { useAuth } from "@/context/auth-context"
+import { useFileContext } from "@/context/file-context"
 import { useToast } from "@/hooks/use-toast"
 import { useToastContext } from "@/context/toast-context"
 import {
@@ -30,7 +32,6 @@ import {
 interface FileItem {
   id: number
   name: string
-  original_name: string
   file_type: string
   mime_type: string
   size_bytes: number
@@ -44,8 +45,7 @@ interface FileItem {
   created_by: number
   uploaded_by_name?: string
   folder_name?: string
-  views?: number
-  download_count?: number
+  last_viewed_at?: string
 }
 
 interface FolderItem {
@@ -56,13 +56,14 @@ interface FolderItem {
   department?: string
   created_at: string
   created_by: number
-  file_count?: number
+  files_count?: number
   subfolder_count?: number
   total_size_bytes?: number
 }
 
 export default function Library() {
   const { user, isAuthenticated } = useAuth()
+  const { setSelectedFile: setAISelectedFile } = useFileContext()
   const { addToast } = useToast()
   const { showToast } = useToastContext()
   const [folders, setFolders] = useState<FolderItem[]>([])
@@ -100,6 +101,8 @@ export default function Library() {
   const [uploading, setUploading] = useState(false)
   const [creatingFolder, setCreatingFolder] = useState(false)
   const [departments, setDepartments] = useState<Array<{id: number, name: string, code: string}>>([])
+  const [recentFiles, setRecentFiles] = useState<FileItem[]>([])
+  const [loadingRecent, setLoadingRecent] = useState(false)
 
   // Fetch folders and files
   const fetchData = async () => {
@@ -174,6 +177,7 @@ export default function Library() {
   useEffect(() => {
     fetchData()
     fetchDepartments()
+    fetchRecentFiles()
   }, [isAuthenticated, user, currentFolderId, searchQuery])
 
   const fetchDepartments = async () => {
@@ -195,6 +199,38 @@ export default function Library() {
       }
     } catch (error) {
       console.error('Error fetching departments:', error)
+    }
+  }
+
+  const fetchRecentFiles = async () => {
+    if (!isAuthenticated || !user) return
+
+    try {
+      setLoadingRecent(true)
+      const response = await fetch('/api/files/recent?limit=5', {
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success) {
+          setRecentFiles(data.files || [])
+        } else {
+          console.error('Recent files API error:', data.error)
+          setRecentFiles([]) // Set empty array on error
+        }
+      } else {
+        console.error('Recent files fetch failed:', response.status, response.statusText)
+        setRecentFiles([]) // Set empty array on error
+      }
+    } catch (error) {
+      console.error('Error fetching recent files:', error)
+      setRecentFiles([]) // Set empty array on error
+    } finally {
+      setLoadingRecent(false)
     }
   }
 
@@ -485,6 +521,12 @@ export default function Library() {
     }
   }
 
+  const handleAIChat = (fileId: string, fileName: string) => {
+    setAISelectedFile(fileId, fileName)
+    // Show a toast to indicate the file has been selected for AI chat
+    showToast(`🤖 AI Chat ready for: ${fileName}`, "success", 3000)
+  }
+
   const getFileIcon = (fileType: string) => {
     const iconColor: Record<string, string> = {
       pdf: "text-red-400",
@@ -649,7 +691,7 @@ export default function Library() {
                                   <Folder className="w-8 h-8 text-yellow-400" />
                                   <div className="flex-1 min-w-0">
                                     <h3 className="font-medium text-foreground truncate">{folder.name}</h3>
-                                    <p className="text-xs text-muted-foreground">{folder.file_count || 0} items</p>
+                                    <p className="text-xs text-muted-foreground">{folder.files_count || 0} items</p>
                                   </div>
                                 </div>
                                 <button
@@ -670,28 +712,23 @@ export default function Library() {
                       {files.length > 0 && (
                         <div>
                           <h2 className="text-lg font-semibold text-foreground mb-4">Files ({files.length})</h2>
-                          <div className="space-y-2">
+                          <div className="space-y-3">
                             {files.map((file) => (
-                              <div
+                              <EnhancedFileItem
                                 key={file.id}
-                                className="glass rounded-lg p-4 flex items-center justify-between group hover:bg-secondary/50 transition cursor-pointer"
-                                onClick={() => handleFileClick(file)}
-                              >
-                                <div className="flex items-center gap-3 flex-1 min-w-0">
-                                  <File className={`w-5 h-5 flex-shrink-0 ${getFileIcon(file.file_type)}`} />
-                                  <div className="flex-1 min-w-0">
-                                    <h3 className="font-medium text-foreground truncate">{file.name}</h3>
-                                    <p className="text-xs text-muted-foreground">
-                                      {formatFileSize(file.size_bytes)} • {formatDate(file.created_at)}
-                                    </p>
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-2 ml-4">
-                                  <span className="text-xs px-2 py-1 rounded bg-primary/20 text-primary">
-                                    {file.file_type?.toUpperCase() || 'FILE'}
-                                  </span>
-                                </div>
-                              </div>
+                                file={file}
+                                onPreview={handlePreviewFile}
+                                onDownload={(file) => {
+                                  setSelectedFile(file)
+                                  setShowDownloadModal(true)
+                                }}
+                                onShare={(file) => {
+                                  setSelectedFile(file)
+                                  setShowShareModal(true)
+                                }}
+                                onAIChat={handleAIChat}
+                                onViewDetails={handleFileClick}
+                              />
                             ))}
                           </div>
                         </div>
@@ -741,37 +778,23 @@ export default function Library() {
                   {files.length > 0 && (
                     <div>
                       <h2 className="text-lg font-semibold text-foreground mb-4">Files</h2>
-                      <div className="space-y-2">
+                      <div className="space-y-3">
                         {files.map((file) => (
-                          <div
+                          <EnhancedFileItem
                             key={file.id}
-                            className="glass rounded-lg p-4 flex items-center justify-between group hover:bg-secondary/50 transition cursor-pointer"
-                            onClick={() => handleFileClick(file)}
-                          >
-                            <div className="flex items-center gap-3 flex-1 min-w-0">
-                              <File className={`w-5 h-5 flex-shrink-0 ${getFileIcon(file.file_type)}`} />
-                              <div className="flex-1 min-w-0">
-                                <h3 className="font-medium text-foreground truncate">{file.name}</h3>
-                                <p className="text-xs text-muted-foreground">
-                                  {formatFileSize(file.size_bytes)} • {formatDate(file.created_at)}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2 ml-4">
-                              <span className="text-xs px-2 py-1 rounded bg-primary/20 text-primary">
-                                {file.file_type?.toUpperCase() || 'FILE'}
-                              </span>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleDeleteFile(file.id)
-                                }}
-                                className="p-1 opacity-0 group-hover:opacity-100 transition hover:bg-red-500/20 rounded"
-                              >
-                                <Trash2 className="w-4 h-4 text-red-400" />
-                              </button>
-                            </div>
-                          </div>
+                            file={file}
+                            onPreview={handlePreviewFile}
+                            onDownload={(file) => {
+                              setSelectedFile(file)
+                              setShowDownloadModal(true)
+                            }}
+                            onShare={(file) => {
+                              setSelectedFile(file)
+                              setShowShareModal(true)
+                            }}
+                            onAIChat={handleAIChat}
+                            onViewDetails={handleFileClick}
+                          />
                         ))}
                       </div>
                     </div>
@@ -1304,159 +1327,33 @@ export default function Library() {
             </div>
           )}
 
-          {searchQuery ? (
-            <>
-              {hasResults ? (
-                <div className="space-y-8">
-                  {folders.length > 0 && (
-                    <div>
-                      <h2 className="text-lg font-semibold text-foreground mb-4">Folders ({folders.length})</h2>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                        {folders.map((folder) => (
-                          <div
-                            key={folder.id}
-                            className="glass rounded-lg p-4 hover:bg-secondary/50 transition cursor-pointer group relative"
-                          >
-                            <div onClick={() => handleOpenFolder(folder.id)} className="flex items-center gap-3">
-                              <Folder className="w-8 h-8 text-yellow-400" />
-                              <div className="flex-1 min-w-0">
-                                <h3 className="font-medium text-foreground truncate">{folder.name}</h3>
-                                <p className="text-xs text-muted-foreground">{folder.file_count || 0} items</p>
-                              </div>
-                            </div>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleDeleteFolder(folder.id)
-                              }}
-                              className="absolute right-2 top-2 p-1 opacity-0 group-hover:opacity-100 transition hover:bg-red-500/20 rounded"
-                            >
-                              <Trash2 className="w-4 h-4 text-red-400" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {files.length > 0 && (
-                    <div>
-                      <h2 className="text-lg font-semibold text-foreground mb-4">Files ({files.length})</h2>
-                      <div className="space-y-2">
-                        {files.map((file) => (
-                          <div
-                            key={file.id}
-                            className="glass rounded-lg p-4 flex items-center justify-between group hover:bg-secondary/50 transition cursor-pointer"
-                            onClick={() => handleFileClick(file)}
-                          >
-                            <div className="flex items-center gap-3 flex-1 min-w-0">
-                              <File className={`w-5 h-5 flex-shrink-0 ${getFileIcon(file.file_type)}`} />
-                              <div className="flex-1 min-w-0">
-                                <h3 className="font-medium text-foreground truncate">{file.name}</h3>
-                                <p className="text-xs text-muted-foreground">
-                                  {formatFileSize(file.size_bytes)} • {formatDate(file.created_at)}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2 ml-4">
-                              <span className="text-xs px-2 py-1 rounded bg-primary/20 text-primary">
-                                {file.file_type?.toUpperCase() || 'FILE'}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="glass rounded-lg p-8 text-center">
-                  <Search className="w-12 h-12 text-muted-foreground/50 mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold text-foreground mb-1">No results found</h3>
-                  <p className="text-muted-foreground">No folders or files match "{searchQuery}"</p>
-                </div>
-              )}
-            </>
-          ) : (
-            <>
-              {folders.length > 0 && (
-                <div className="mb-8">
-                  <h2 className="text-lg font-semibold text-foreground mb-4">Folders</h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {folders.map((folder) => (
-                      <div
-                        key={folder.id}
-                        className="glass rounded-lg p-4 hover:bg-secondary/50 transition cursor-pointer group relative"
-                      >
-                        <div onClick={() => handleOpenFolder(folder.id)} className="flex items-center gap-3">
-                          <Folder className="w-8 h-8 text-yellow-400" />
-                          <div className="flex-1 min-w-0">
-                            <h3 className="font-medium text-foreground truncate">{folder.name}</h3>
-                            <p className="text-xs text-muted-foreground">{folder.file_count || 0} items</p>
-                          </div>
-                        </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleDeleteFolder(folder.id)
-                          }}
-                          className="absolute right-2 top-2 p-1 opacity-0 group-hover:opacity-100 transition hover:bg-red-500/20 rounded"
-                        >
-                          <Trash2 className="w-4 h-4 text-red-400" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {files.length > 0 && (
-                <div>
-                  <h2 className="text-lg font-semibold text-foreground mb-4">Files</h2>
-                  <div className="space-y-2">
-                    {files.map((file) => (
-                      <div
-                        key={file.id}
-                        className="glass rounded-lg p-4 flex items-center justify-between group hover:bg-secondary/50 transition cursor-pointer"
-                        onClick={() => handleFileClick(file)}
-                      >
-                        <div className="flex items-center gap-3 flex-1 min-w-0">
-                          <File className={`w-5 h-5 flex-shrink-0 ${getFileIcon(file.file_type)}`} />
-                          <div className="flex-1 min-w-0">
-                            <h3 className="font-medium text-foreground truncate">{file.name}</h3>
-                            <p className="text-xs text-muted-foreground">
-                              {formatFileSize(file.size_bytes)} • {formatDate(file.created_at)}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 ml-4">
-                          <span className="text-xs px-2 py-1 rounded bg-primary/20 text-primary">
-                            {file.file_type?.toUpperCase() || 'FILE'}
-                          </span>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleDeleteFile(file.id)
-                            }}
-                            className="p-1 opacity-0 group-hover:opacity-100 transition hover:bg-red-500/20 rounded"
-                          >
-                            <Trash2 className="w-4 h-4 text-red-400" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {folders.length === 0 && files.length === 0 && (
-                <div className="glass rounded-lg p-8 text-center">
-                  <Folder className="w-12 h-12 text-muted-foreground/50 mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold text-foreground mb-1">No items yet</h3>
-                  <p className="text-muted-foreground">Create a folder or upload a file to get started</p>
-                </div>
-              )}
-            </>
+          {/* Recent Viewed Files - Only show in root folder */}
+          {!searchQuery && !currentFolderId && recentFiles.length > 0 && (
+            <div className="mb-8">
+              <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+                <Clock className="w-5 h-5 text-primary" />
+                Recently Added
+              </h2>
+              <div className="space-y-3">
+                {recentFiles.map((file) => (
+                  <EnhancedFileItem
+                    key={file.id}
+                    file={file}
+                    onPreview={handlePreviewFile}
+                    onDownload={(file) => {
+                      setSelectedFile(file)
+                      setShowDownloadModal(true)
+                    }}
+                    onShare={(file) => {
+                      setSelectedFile(file)
+                      setShowShareModal(true)
+                    }}
+                    onAIChat={handleAIChat}
+                    onViewDetails={handleFileClick}
+                  />
+                ))}
+              </div>
+            </div>
           )}
         </div>
       </main>

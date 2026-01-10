@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyToken } from '@/lib/auth'
+import { authenticateRequest } from '@/lib/auth'
 import { executeQuery, executeSingle } from '@/lib/database'
 import { getClientIdentifier } from '@/lib/utils'
 import { checkRateLimit } from '@/lib/captcha'
@@ -27,25 +27,18 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Get token from cookie
-    const token = request.cookies.get('auth-token')?.value
-
-    if (!token) {
-      return NextResponse.json(
-        { error: 'Not authenticated' },
-        { status: 401 }
-      )
+    // Verify authentication
+    const auth = authenticateRequest(request)
+    if (!auth.success || !auth.user) {
+      return NextResponse.json({ error: auth.error || 'Authentication failed' }, { status: 401 })
     }
 
-    // Verify token
-    const payload = verifyToken(token)
-    if (!payload || payload.type !== 'organization') {
-      return NextResponse.json(
-        { error: 'Unauthorized. Only organization admins can access departments.' },
-        { status: 403 }
-      )
-    }
+    const { organizationId, type: userType } = auth.user
 
+    // Only organization admins can access this
+    if (userType !== 'organization') {
+      return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+    }
     // Get departments for the organization
     const query = `
       SELECT 
@@ -66,7 +59,7 @@ export async function GET(request: NextRequest) {
       ORDER BY d.name ASC
     `
 
-    const departments = await executeQuery<Department>(query, [payload.organizationId || payload.id])
+    const departments = await executeQuery<Department>(query, [organizationId])
 
     return NextResponse.json({
       success: true,
@@ -104,26 +97,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get token from cookie
-    const token = request.cookies.get('auth-token')?.value
-
-    if (!token) {
-      return NextResponse.json(
-        { error: 'Not authenticated' },
-        { status: 401 }
-      )
+    // Verify authentication
+    const auth = authenticateRequest(request)
+    if (!auth.success || !auth.user) {
+      return NextResponse.json({ error: auth.error || 'Authentication failed' }, { status: 401 })
     }
 
-    // Verify token
-    const payload = verifyToken(token)
-    if (!payload || payload.type !== 'organization') {
-      return NextResponse.json(
-        { error: 'Unauthorized. Only organization admins can create departments.' },
-        { status: 403 }
-      )
+    const { organizationId, type: userType } = auth.user
+
+    // Only organization admins can create departments
+    if (userType !== 'organization') {
+      return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 
-    const organizationId = payload.organizationId || payload.id
     const departmentName = name.trim()
 
     // Check if department name already exists

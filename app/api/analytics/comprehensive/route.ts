@@ -1,21 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyToken } from '@/lib/auth'
+import { authenticateRequest } from '@/lib/auth'
 import { executeQuery } from '@/lib/database'
 
 export async function GET(request: NextRequest) {
   try {
     // Verify authentication
-    const token = request.headers.get('authorization')?.replace('Bearer ', '')
-    if (!token) {
-      return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+    const auth = authenticateRequest(request)
+    if (!auth.success || !auth.user) {
+      return NextResponse.json({ error: auth.error || 'Authentication failed' }, { status: 401 })
     }
 
-    const decoded = verifyToken(token)
-    if (!decoded) {
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 })
-    }
-
-    const { userId, organizationId, userType } = decoded
+    const { userId, organizationId, type: userType } = auth.user
     const { searchParams } = new URL(request.url)
     
     const period = searchParams.get('period') || '30' // days
@@ -92,7 +87,9 @@ export async function GET(request: NextRequest) {
           COALESCE(SUM(f.size_bytes), 0) as actual_usage_bytes,
           AVG(f.size_bytes) as avg_file_size_bytes
         FROM storage_configurations sc
-        LEFT JOIN files f ON f.organization_id = sc.organization_id AND f.storage_provider = sc.storage_type AND f.is_deleted = 0
+        LEFT JOIN files f ON f.organization_id = sc.organization_id 
+          AND f.storage_provider COLLATE utf8mb4_general_ci = sc.storage_type COLLATE utf8mb4_general_ci 
+          AND f.is_deleted = 0
         WHERE sc.organization_id = ?
         GROUP BY sc.id, sc.storage_type
       `, [organizationId]),

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { verifyToken } from '@/lib/auth'
+import { authenticateRequest } from '@/lib/auth'
 import { executeQuery, executeSingle } from '@/lib/database'
 import { getClientIdentifier } from '@/lib/utils'
 import { checkRateLimit } from '@/lib/captcha'
@@ -28,26 +28,21 @@ export async function PUT(request: NextRequest) {
       )
     }
 
-    // Get token from cookie
-    const token = request.cookies.get('auth-token')?.value
-
-    if (!token) {
-      return NextResponse.json(
-        { error: 'Not authenticated' },
-        { status: 401 }
-      )
+    // Verify authentication
+    const auth = authenticateRequest(request)
+    if (!auth.success || !auth.user) {
+      return NextResponse.json({ error: auth.error || 'Authentication failed' }, { status: 401 })
     }
 
-    // Verify token
-    const payload = verifyToken(token)
-    if (!payload || payload.type !== 'organization') {
+    const { organizationId, type: userType } = auth.user
+
+    // Only organization admins can update profile
+    if (userType !== 'organization') {
       return NextResponse.json(
         { error: 'Unauthorized. Only organization admins can update profile.' },
         { status: 403 }
       )
     }
-
-    const organizationId = payload.organizationId || payload.id
 
     // Check if organization name already exists (excluding current organization)
     const existingOrgQuery = 'SELECT id FROM organizations WHERE name = ? AND id != ?'

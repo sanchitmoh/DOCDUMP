@@ -17,7 +17,7 @@ export interface Folder {
   creator_name?: string
   parent_name?: string
   children_count?: number
-  files_count?: number
+  file_count?: number
   total_size?: number
   permission?: string
 }
@@ -37,7 +37,7 @@ export interface FolderTree {
   description?: string
   parent_id?: number
   children: FolderTree[]
-  files_count: number
+  file_count: number
   total_size: number
   permission?: string
   created_by?: number
@@ -117,7 +117,7 @@ export class FolderService {
           pf.name as parent_name,
           fp.permission,
           (SELECT COUNT(*) FROM folders cf WHERE cf.parent_id = f.id AND cf.is_deleted = 0) as children_count,
-          (SELECT COUNT(*) FROM files fi WHERE fi.folder_id = f.id AND fi.is_deleted = 0) as files_count,
+          (SELECT COUNT(*) FROM files fi WHERE fi.folder_id = f.id AND fi.is_deleted = 0) as file_count,
           (SELECT COALESCE(SUM(fi.size_bytes), 0) FROM files fi WHERE fi.folder_id = f.id AND fi.is_deleted = 0) as total_size
         FROM folders f
         LEFT JOIN organization_employees u ON f.created_by = u.id
@@ -148,7 +148,7 @@ export class FolderService {
         SELECT 
           f.*,
           fp.permission,
-          (SELECT COUNT(*) FROM files fi WHERE fi.folder_id = f.id AND fi.is_deleted = 0) as files_count,
+          (SELECT COUNT(*) FROM files fi WHERE fi.folder_id = f.id AND fi.is_deleted = 0) as file_count,
           (SELECT COALESCE(SUM(fi.size_bytes), 0) FROM files fi WHERE fi.folder_id = f.id AND fi.is_deleted = 0) as total_size
         FROM folders f
         LEFT JOIN folder_permissions fp ON f.id = fp.folder_id AND fp.employee_id = ?
@@ -165,7 +165,7 @@ export class FolderService {
           description: folder.description,
           parent_id: folder.parent_id,
           children: [],
-          files_count: folder.files_count || 0,
+          file_count: folder.file_count || 0,
           total_size: folder.total_size || 0,
           permission: folder.permission,
           created_by: folder.created_by,
@@ -201,8 +201,8 @@ export class FolderService {
       // Check cache first
       const cacheKey = `folder_path:${folderId}`
       const cached = await this.redis.get(cacheKey)
-      if (cached) {
-        return cached
+      if (cached && typeof cached === 'string') {
+        return JSON.parse(cached) as Folder[]
       }
 
       const path: Folder[] = []
@@ -224,7 +224,7 @@ export class FolderService {
       }
 
       // Cache for 1 hour
-      await this.redis.set(cacheKey, path, { ttl: 3600 })
+      await this.redis.set(cacheKey, JSON.stringify(path), { ttl: 3600 })
 
       return path
     } catch (error) {
@@ -247,8 +247,8 @@ export class FolderService {
     }
   ): Promise<void> {
     try {
-      const updateFields = []
-      const updateValues = []
+      const updateFields: string[] = []
+      const updateValues: any[] = []
 
       Object.entries(updates).forEach(([key, value]) => {
         if (value !== undefined) {
@@ -550,7 +550,7 @@ export class FolderService {
 
       if (filters?.parentId !== undefined) {
         whereClause += ' AND f.parent_id <=> ?'
-        queryParams.push(filters.parentId || null)
+        queryParams.push(filters.parentId ?? null)
       }
 
       return await executeQuery(`
@@ -560,7 +560,7 @@ export class FolderService {
           pf.name as parent_name,
           fp.permission,
           (SELECT COUNT(*) FROM folders cf WHERE cf.parent_id = f.id AND cf.is_deleted = 0) as children_count,
-          (SELECT COUNT(*) FROM files fi WHERE fi.folder_id = f.id AND fi.is_deleted = 0) as files_count,
+          (SELECT COUNT(*) FROM files fi WHERE fi.folder_id = f.id AND fi.is_deleted = 0) as file_count,
           (SELECT COALESCE(SUM(fi.size_bytes), 0) FROM files fi WHERE fi.folder_id = f.id AND fi.is_deleted = 0) as total_size
         FROM folders f
         LEFT JOIN organization_employees u ON f.created_by = u.id

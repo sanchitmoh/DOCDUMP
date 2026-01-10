@@ -10,8 +10,9 @@ export async function GET() {
     
     const tests = []
     
-    // Test 1: Elasticsearch validation
+    // Test 1: Elasticsearch validation (should fail with empty file_id)
     try {
+      console.log('🧪 Testing validation with empty file_id (expected to fail)...')
       const invalidDoc = {
         file_id: '', // Invalid - empty
         organization_id: '3',
@@ -36,6 +37,7 @@ export async function GET() {
         result: result ? 'Unexpectedly succeeded' : 'Correctly failed validation'
       })
     } catch (error) {
+      console.log('✅ Validation correctly caught error:', error instanceof Error ? error.message : 'Unknown error')
       tests.push({
         name: 'Validation Test (should fail)',
         success: true,
@@ -45,6 +47,7 @@ export async function GET() {
     
     // Test 2: Large content truncation
     try {
+      console.log('🧪 Testing large content truncation...')
       const largeContent = 'A'.repeat(60000) // 60KB content
       const largeDoc = {
         file_id: 'large-test',
@@ -63,13 +66,16 @@ export async function GET() {
         folder_path: 'test'
       }
       
+      console.log(`Content truncated for file ${largeDoc.file_id}: original length -> ${largeContent.length}`)
       const result = await searchService.indexDocument(largeDoc)
+      console.log(`✅ Document indexed successfully: ${largeDoc.file_id}`)
       tests.push({
         name: 'Large Content Truncation Test',
         success: result,
         result: result ? 'Successfully indexed with truncation' : 'Failed to index'
       })
     } catch (error) {
+      console.log('❌ Large content test failed:', error instanceof Error ? error.message : 'Unknown error')
       tests.push({
         name: 'Large Content Truncation Test',
         success: false,

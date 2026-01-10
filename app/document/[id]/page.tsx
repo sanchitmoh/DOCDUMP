@@ -22,10 +22,227 @@ import {
   Linkedin,
   Twitter,
 } from "lucide-react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
+import { useAuth } from "@/context/auth-context"
 
-export default function DocumentViewer({ params }: { params: { id: string } }) {
+interface DocumentDetails {
+  id: string
+  title: string
+  description: string
+  author: string
+  date: string
+  views: number
+  downloads: number
+  type: string
+  size: string
+  category: string
+  tags: string[]
+  visibility: string
+  isActive: boolean
+  aiDescription?: string
+  uploader: {
+    name: string
+    department: string
+    email: string
+    avatar: string
+    timePosted: string
+    organization: string
+  }
+  mimeType: string
+  createdAt: string
+  updatedAt: string
+}
+
+interface RelatedDocument {
+  id: string
+  title: string
+  author: string
+  date: string
+  department: string
+}
+
+// Document Preview Component
+function DocumentPreview({ document }: { document: DocumentDetails }) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewError, setPreviewError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    generatePreviewUrl()
+  }, [document])
+
+  const generatePreviewUrl = async () => {
+    try {
+      setLoading(true)
+      setPreviewError(null)
+
+      // For different file types, we'll use different preview methods
+      const mimeType = document.mimeType?.toLowerCase() || ''
+      const fileType = document.type?.toLowerCase() || ''
+
+      if (mimeType.includes('pdf')) {
+        // For PDFs, we can use the browser's built-in PDF viewer
+        const response = await fetch(`/api/files/download/${document.id}`, {
+          credentials: 'include'
+        })
+        
+        if (response.ok) {
+          const blob = await response.blob()
+          const url = URL.createObjectURL(blob)
+          setPreviewUrl(url)
+        } else {
+          setPreviewError('Failed to load PDF preview')
+        }
+      } else if (mimeType.includes('image/')) {
+        // For images, show them directly
+        const response = await fetch(`/api/files/download/${document.id}`, {
+          credentials: 'include'
+        })
+        
+        if (response.ok) {
+          const blob = await response.blob()
+          const url = URL.createObjectURL(blob)
+          setPreviewUrl(url)
+        } else {
+          setPreviewError('Failed to load image preview')
+        }
+      } else if (mimeType.includes('text/') || fileType === 'txt') {
+        // For text files, show content directly
+        const response = await fetch(`/api/files/download/${document.id}`, {
+          credentials: 'include'
+        })
+        
+        if (response.ok) {
+          const text = await response.text()
+          setPreviewUrl(`data:text/plain;charset=utf-8,${encodeURIComponent(text)}`)
+        } else {
+          setPreviewError('Failed to load text preview')
+        }
+      } else {
+        // For other file types, show a message that preview is not available
+        setPreviewError('Preview not available for this file type')
+      }
+    } catch (error) {
+      console.error('Preview error:', error)
+      setPreviewError('Failed to generate preview')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="bg-card rounded-lg p-8 text-center flex items-center justify-center min-h-80">
+        <div>
+          <Loader className="w-8 h-8 animate-spin text-primary mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading preview...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (previewError) {
+    return (
+      <div className="bg-card rounded-lg p-8 text-center flex items-center justify-center min-h-80">
+        <div>
+          <FileText className="w-16 h-16 text-primary/50 mx-auto mb-4" />
+          <p className="text-muted-foreground mb-2">{document.type} Document</p>
+          <p className="text-sm text-muted-foreground mb-4">{previewError}</p>
+          <button
+            onClick={() => window.open(`/api/files/download/${document.id}`, '_blank')}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition font-medium"
+          >
+            Open File
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  const mimeType = document.mimeType?.toLowerCase() || ''
+
+  if (mimeType.includes('pdf')) {
+    return (
+      <div className="bg-card rounded-lg overflow-hidden min-h-80">
+        <iframe
+          src={previewUrl || ''}
+          className="w-full h-96 border-0"
+          title={`Preview of ${document.title}`}
+        />
+        <div className="p-4 border-t border-border">
+          <p className="text-sm text-muted-foreground text-center">
+            PDF Preview • <button 
+              onClick={() => window.open(previewUrl || '', '_blank')}
+              className="text-primary hover:underline"
+            >
+              Open in new tab
+            </button>
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  if (mimeType.includes('image/')) {
+    return (
+      <div className="bg-card rounded-lg overflow-hidden">
+        <div className="flex items-center justify-center p-4">
+          <img
+            src={previewUrl || ''}
+            alt={document.title}
+            className="max-w-full max-h-96 object-contain rounded"
+          />
+        </div>
+        <div className="p-4 border-t border-border">
+          <p className="text-sm text-muted-foreground text-center">
+            Image Preview • {document.size}
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  if (mimeType.includes('text/')) {
+    return (
+      <div className="bg-card rounded-lg overflow-hidden">
+        <iframe
+          src={previewUrl || ''}
+          className="w-full h-96 border-0 bg-white"
+          title={`Preview of ${document.title}`}
+        />
+        <div className="p-4 border-t border-border">
+          <p className="text-sm text-muted-foreground text-center">
+            Text Preview • {document.size}
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-card rounded-lg p-8 text-center flex items-center justify-center min-h-80">
+      <div>
+        <FileText className="w-16 h-16 text-primary/50 mx-auto mb-4" />
+        <p className="text-muted-foreground mb-2">{document.type} Document</p>
+        <p className="text-sm text-muted-foreground mb-4">Preview not available for this file type</p>
+        <button
+          onClick={() => window.open(`/api/files/download/${document.id}`, '_blank')}
+          className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition font-medium"
+        >
+          Download File
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export default function DocumentViewer({ params }: { params: Promise<{ id: string }> }) {
+  const { isAuthenticated } = useAuth()
+  const [document, setDocument] = useState<DocumentDetails | null>(null)
+  const [relatedDocuments, setRelatedDocuments] = useState<RelatedDocument[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [isSaved, setIsSaved] = useState(false)
   const [showAISummary, setShowAISummary] = useState(false)
   const [aiSummary, setAiSummary] = useState("")
@@ -34,59 +251,85 @@ export default function DocumentViewer({ params }: { params: { id: string } }) {
   const [showShareModal, setShowShareModal] = useState(false)
   const [showDownloadModal, setShowDownloadModal] = useState(false)
   const [copiedLink, setCopiedLink] = useState(false)
+  const [documentId, setDocumentId] = useState<string | null>(null)
 
-  // Mock document data with uploader information
-  const document = {
-    id: params.id,
-    title: "Q4 Financial Report 2024",
-    author: "Finance Department",
-    date: "2024-11-15",
-    views: 1203,
-    type: "PDF",
-    size: "2.4 MB",
-    category: "Financial",
-    tags: ["finances", "quarterly", "report", "2024"],
-    description:
-      "Comprehensive financial analysis and performance metrics for Q4 2024, including revenue breakdown, expense analysis, and forward-looking projections.",
-    uploader: {
-      name: "Sarah Johnson",
-      department: "Finance",
-      email: "sarah.johnson@company.com",
-      avatar: "👤",
-      timePosted: "2024-11-15 10:30 AM",
-      location: "New York, USA",
-    },
-    keyHighlights: [
-      { label: "Revenue Growth", value: "+23% YoY" },
-      { label: "Profit Margin", value: "18.5%" },
-      { label: "Cost Reduction", value: "-8%" },
-      { label: "Customer Acquisition", value: "+15%" },
-    ],
-    readingTime: "8-12 minutes",
-    content:
-      "This comprehensive Q4 2024 financial report reveals strong organizational growth with a 23% YoY revenue increase. Key findings include: Operating costs reduced by 8%, customer acquisition improved by 15%, and profit margins expanded to 18.5%. The report highlights three critical action items: technology infrastructure modernization, regional expansion into Asian markets, and talent acquisition in engineering. Forward-looking projections suggest continued growth trajectory with estimated 30% increase in Q1 2025. Risk factors include market volatility and supply chain disruptions.",
+  // Resolve params Promise
+  useEffect(() => {
+    params.then(({ id }) => {
+      setDocumentId(id)
+    })
+  }, [params])
+
+  useEffect(() => {
+    if (isAuthenticated && documentId) {
+      fetchDocumentDetails()
+    }
+  }, [isAuthenticated, documentId])
+
+  const fetchDocumentDetails = async () => {
+    if (!documentId) return
+    
+    try {
+      setLoading(true)
+      setError(null)
+      
+      console.log('Fetching document details for ID:', documentId)
+      
+      const response = await fetch(`/api/files/${documentId}/details`, {
+        credentials: 'include'
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success) {
+          setDocument(data.document)
+          setRelatedDocuments(data.relatedDocuments || [])
+          
+          // Set AI summary if available
+          if (data.document.aiDescription) {
+            setAiSummary(data.document.aiDescription)
+            setShowAISummary(true)
+          }
+        } else {
+          setError(data.error || 'Failed to load document')
+        }
+      } else {
+        const errorData = await response.json()
+        setError(errorData.error || 'Failed to load document')
+      }
+    } catch (error) {
+      console.error('Error fetching document details:', error)
+      setError('Network error. Please try again.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleGenerateSummary = async () => {
+    if (!document || !documentId) return
+    
     setLoadingSummary(true)
     try {
-      const response = await fetch("/api/generate-summary", {
-        method: "POST",
+      const response = await fetch(`/api/files/${documentId}/ai-summary`, {
+        method: 'POST',
+        credentials: 'include',
         headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          documentTitle: document.title,
-          documentContent: document.content,
-          documentDescription: document.description,
-        }),
+          'Content-Type': 'application/json',
+        }
       })
 
-      if (!response.ok) throw new Error("Failed to generate summary")
-
-      const { summary } = await response.json()
-      setAiSummary(summary)
-      setShowAISummary(true)
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success && data.summary) {
+          setAiSummary(data.summary)
+          setShowAISummary(true)
+        } else {
+          alert('Failed to generate summary: ' + (data.error || 'Unknown error'))
+        }
+      } else {
+        const errorData = await response.json()
+        alert('Failed to generate summary: ' + (errorData.error || 'Unknown error'))
+      }
     } catch (error) {
       console.error("Error:", error)
       alert("Failed to generate summary. Please try again.")
@@ -96,15 +339,95 @@ export default function DocumentViewer({ params }: { params: { id: string } }) {
   }
 
   const handleCopyLink = () => {
-    const url = `${window.location.origin}/document/${document.id}`
+    if (!documentId) return
+    const url = `${window.location.origin}/document/${documentId}`
     navigator.clipboard.writeText(url)
     setCopiedLink(true)
     setTimeout(() => setCopiedLink(false), 2000)
   }
 
-  const handleDownload = (format: string) => {
-    alert(`Downloading ${document.title} as ${format}`)
-    setShowDownloadModal(false)
+  const handleDownload = async (format: string) => {
+    if (!document) return
+    
+    try {
+      const response = await fetch(`/api/files/download/${document.id}`, {
+        credentials: 'include'
+      })
+      
+      if (response.ok) {
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = window.document.createElement('a')
+        a.style.display = 'none'
+        a.href = url
+        a.download = document.title
+        window.document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+        setShowDownloadModal(false)
+      } else {
+        alert('Failed to download file')
+      }
+    } catch (error) {
+      console.error('Download error:', error)
+      alert('Failed to download file')
+    }
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col">
+        <Navbar />
+        <main className="flex-1 px-4 py-8 flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-muted-foreground mb-4">Please login to view this document</p>
+            <Link
+              href="/login"
+              className="inline-block px-6 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition font-medium"
+            >
+              Login
+            </Link>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col">
+        <Navbar />
+        <main className="flex-1 px-4 py-8 flex items-center justify-center">
+          <div className="text-center">
+            <Loader className="w-8 h-8 animate-spin text-primary mx-auto mb-4" />
+            <p className="text-muted-foreground">Loading document...</p>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    )
+  }
+
+  if (error || !document) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col">
+        <Navbar />
+        <main className="flex-1 px-4 py-8 flex items-center justify-center">
+          <div className="text-center">
+            <FileText className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
+            <p className="text-muted-foreground mb-4">{error || 'Document not found'}</p>
+            <Link
+              href="/library"
+              className="inline-block px-6 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition font-medium"
+            >
+              Back to Library
+            </Link>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    )
   }
 
   return (
@@ -121,13 +444,15 @@ export default function DocumentViewer({ params }: { params: { id: string } }) {
                   <span className="px-3 py-1 bg-primary/20 text-primary rounded-full text-sm font-medium">
                     {document.category}
                   </span>
-                  <span className="px-3 py-1 bg-cyan-500/20 text-cyan-400 rounded-full text-sm font-medium flex items-center space-x-1">
-                    <Sparkles className="w-3 h-3" />
-                    <span>AI-Enhanced</span>
-                  </span>
+                  {document.aiDescription && (
+                    <span className="px-3 py-1 bg-cyan-500/20 text-cyan-400 rounded-full text-sm font-medium flex items-center space-x-1">
+                      <Sparkles className="w-3 h-3" />
+                      <span>AI-Enhanced</span>
+                    </span>
+                  )}
                 </div>
                 <h1 className="text-4xl font-bold text-foreground mb-2">
-                  <Link href={`/documents/${document.id}`}>{document.title}</Link>
+                  {document.title}
                 </h1>
               </div>
 
@@ -177,7 +502,7 @@ export default function DocumentViewer({ params }: { params: { id: string } }) {
                   <Calendar className="w-4 h-4" />
                   <span>Published</span>
                 </p>
-                <p className="font-medium text-foreground">{document.date}</p>
+                <p className="font-medium text-foreground">{new Date(document.date).toLocaleDateString()}</p>
               </div>
 
               <div>
@@ -199,9 +524,9 @@ export default function DocumentViewer({ params }: { params: { id: string } }) {
               <div>
                 <p className="text-muted-foreground mb-1 flex items-center space-x-1">
                   <Clock className="w-4 h-4" />
-                  <span>Read Time</span>
+                  <span>Type</span>
                 </p>
-                <p className="font-medium text-foreground">{document.readingTime}</p>
+                <p className="font-medium text-foreground">{document.type}</p>
               </div>
             </div>
           </div>
@@ -209,7 +534,7 @@ export default function DocumentViewer({ params }: { params: { id: string } }) {
           <div className="glass rounded-lg p-6 mb-8 border-l-4 border-primary">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-primary/20 rounded-full flex items-center justify-center text-lg">
+                <div className="w-12 h-12 bg-primary/20 rounded-full flex items-center justify-center text-lg font-semibold text-primary">
                   {document.uploader.avatar}
                 </div>
                 <div>
@@ -269,16 +594,6 @@ export default function DocumentViewer({ params }: { params: { id: string } }) {
             {showAISummary && aiSummary && (
               <div className="space-y-4 animate-fade-in">
                 <p className="text-muted-foreground leading-relaxed">{aiSummary}</p>
-
-                {/* Key Highlights */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
-                  {document.keyHighlights.map((item, idx) => (
-                    <div key={idx} className="bg-white/5 border border-white/10 rounded-lg p-3 text-center">
-                      <p className="text-xs text-muted-foreground mb-1">{item.label}</p>
-                      <p className="font-semibold text-cyan-400">{item.value}</p>
-                    </div>
-                  ))}
-                </div>
               </div>
             )}
           </div>
@@ -312,29 +627,43 @@ export default function DocumentViewer({ params }: { params: { id: string } }) {
 
           {/* Document Preview Area */}
           <div className="glass rounded-lg p-8 mb-8 min-h-96">
-            <div className="bg-card rounded-lg p-8 text-center flex items-center justify-center min-h-80">
-              <div>
-                <FileText className="w-16 h-16 text-primary/50 mx-auto mb-4" />
-                <p className="text-muted-foreground mb-2">{document.type} Document</p>
-                <p className="text-sm text-muted-foreground">Document preview would be displayed here</p>
+            {document ? (
+              <DocumentPreview document={document} />
+            ) : (
+              <div className="bg-card rounded-lg p-8 text-center flex items-center justify-center min-h-80">
+                <div>
+                  <FileText className="w-16 h-16 text-primary/50 mx-auto mb-4" />
+                  <p className="text-muted-foreground mb-2">Loading document...</p>
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* Related Documents */}
           <div>
             <h2 className="text-xl font-semibold text-foreground mb-4">Related Documents</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="glass glow-hover p-4 rounded-lg cursor-pointer group">
-                  <FileText className="w-8 h-8 text-primary mb-3 group-hover:scale-110 transition" />
-                  <h3 className="font-medium text-foreground group-hover:text-primary transition line-clamp-2">
-                    Related Document {i}
-                  </h3>
-                  <p className="text-xs text-muted-foreground mt-2">Finance Team • 2 weeks ago</p>
-                </div>
-              ))}
-            </div>
+            {relatedDocuments.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {relatedDocuments.slice(0, 3).map((doc) => (
+                  <Link key={doc.id} href={`/document/${doc.id}`}>
+                    <div className="glass glow-hover p-4 rounded-lg cursor-pointer group">
+                      <FileText className="w-8 h-8 text-primary mb-3 group-hover:scale-110 transition" />
+                      <h3 className="font-medium text-foreground group-hover:text-primary transition line-clamp-2">
+                        {doc.title}
+                      </h3>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        {doc.author} • {new Date(doc.date).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <FileText className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
+                <p className="text-muted-foreground">No related documents found</p>
+              </div>
+            )}
           </div>
         </div>
       </main>
@@ -371,12 +700,12 @@ export default function DocumentViewer({ params }: { params: { id: string } }) {
 
               <div>
                 <p className="text-xs text-muted-foreground mb-1">Time Posted</p>
-                <p className="text-foreground font-medium">{document.uploader.timePosted}</p>
+                <p className="text-foreground font-medium">{new Date(document.uploader.timePosted).toLocaleString()}</p>
               </div>
 
               <div>
-                <p className="text-xs text-muted-foreground mb-1">Location</p>
-                <p className="text-foreground font-medium">{document.uploader.location}</p>
+                <p className="text-xs text-muted-foreground mb-1">Organization</p>
+                <p className="text-foreground font-medium">{document.uploader.organization}</p>
               </div>
 
               <button className="w-full mt-6 px-4 py-2 bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition font-medium">

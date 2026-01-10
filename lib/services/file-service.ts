@@ -1,4 +1,4 @@
-import { executeQuery, executeSingle } from '@/lib/database'
+import { executeQuery, executeSingle, executeComplexQuery } from '@/lib/database'
 import { createHybridStorageService } from './hybrid-storage'
 import { createTextExtractionService } from './text-extraction'
 import { createElasticsearchService } from '@/lib/search/elasticsearch'
@@ -608,7 +608,8 @@ export class FileService {
         WHERE f.organization_id = ? AND f.is_deleted = 0 
         AND (f.name LIKE ? OR f.description LIKE ? OR etc.extracted_text LIKE ?)
       `
-      const queryParams = [organizationId, `%${query}%`, `%${query}%`, `%${query}%`]
+      // Start with userId parameters for permissions, then add search parameters
+      const queryParams = [userId || null, userId || null, organizationId, `%${query}%`, `%${query}%`, `%${query}%`]
 
       // Apply filters
       if (filters?.folderId) {
@@ -672,7 +673,7 @@ export class FileService {
       }
 
       // Get files
-      const files = await executeQuery(`
+      const files = await executeComplexQuery(`
         SELECT 
           f.*,
           u.full_name as creator_name,
@@ -692,17 +693,32 @@ export class FileService {
         ${whereClause}
         ORDER BY f.${sortBy} ${sortOrder}
         LIMIT ? OFFSET ?
-      `, [userId || null, userId || null, ...queryParams, limit, offset])
+      `, [...queryParams, limit, offset])
 
-      // Get total count
-      const countResult = await executeQuery(`
+      // Get total count (without userId parameters since count query doesn't use permissions)
+      const countParams = [organizationId, `%${query}%`, `%${query}%`, `%${query}%`]
+      
+      // Add filter parameters for count query
+      if (filters?.folderId) countParams.push(filters.folderId)
+      if (filters?.fileType) countParams.push(filters.fileType)
+      if (filters?.mimeType) countParams.push(filters.mimeType)
+      if (filters?.department) countParams.push(filters.department)
+      if (filters?.createdBy) countParams.push(filters.createdBy)
+      if (filters?.visibility) countParams.push(filters.visibility)
+      if (filters?.dateRange?.from) countParams.push(filters.dateRange.from)
+      if (filters?.dateRange?.to) countParams.push(filters.dateRange.to)
+      if (filters?.sizeRange?.min) countParams.push(filters.sizeRange.min)
+      if (filters?.sizeRange?.max) countParams.push(filters.sizeRange.max)
+      if (filters?.tags && filters.tags.length > 0) countParams.push(...filters.tags)
+
+      const countResult = await executeComplexQuery<{ total: number }>(`
         SELECT COUNT(DISTINCT f.id) as total
         FROM files f
         LEFT JOIN extracted_text_content etc ON f.id = etc.file_id AND etc.content_type = 'full_text'
         ${whereClause}
-      `, queryParams)
+      `, countParams)
 
-      const total = countResult[0].total
+      const total = countResult[0]?.total || 0
 
       // Process files
       const processedFiles = await Promise.all(files.map(async file => {
@@ -954,8 +970,11 @@ export class FileService {
     userId: number
   ): Promise<{ success: boolean, summary?: string, error?: string }> {
     try {
+      console.log(`🤖 [AI-SUMMARY] Starting AI summary generation for file ${fileId}`)
+      
       // Check if OpenAI is configured
       if (!process.env.OPENAI_API_KEY) {
+        console.error('❌ [AI-SUMMARY] OpenAI API key not configured')
         return { success: false, error: 'AI service not configured' }
       }
 
@@ -978,16 +997,108 @@ export class FileService {
       `, [fileId, organizationId])
 
       if (fileData.length === 0) {
+        console.error(`❌ [AI-SUMMARY] File ${fileId} not found in organization ${organizationId}`)
         return { success: false, error: 'File not found' }
       }
 
       const file = fileData[0]
+      console.log(`📁 [AI-SUMMARY] File info:`, {
+        name: file.name,
+        type: file.file_type,
+        mimeType: file.mime_type,
+        hasExtractedText: !!file.extracted_text,
+        hasDescription: !!file.description
+      })
       
       // Check if we have content to summarize
       const content = file.extracted_text || file.description || file.ai_description
-      if (!content || content.trim().length < 50) {
+      
+      // Handle different file types
+      let summaryPrompt = ''
+      let hasContent = false
+      
+      if (file.mime_type?.startsWith('video/')) {
+        console.log(`🎬 [AI-SUMMARY] Processing video file: ${file.name}`)
+        // For video files, generate summary based on metadata
+        summaryPrompt = `Generate a professional summary for this video file:
+        
+File Name: ${file.name}
+File Type: ${file.file_type}
+Department: ${file.department_name || 'General'}
+Folder: ${file.folder_name || 'Root'}
+Description: ${file.description || 'No description provided'}
+
+Please provide:
+1. A brief description of what this video likely contains based on the filename
+2. Potential use cases for this video in a corporate environment
+3. Suggested tags or categories for better organization
+4. Recommendations for who might find this video useful
+
+Keep the summary professional and concise (under 300 words).`
+        hasContent = true
+      } else if (file.mime_type?.startsWith('audio/')) {
+        console.log(`🎵 [AI-SUMMARY] Processing audio file: ${file.name}`)
+        // For audio files, generate summary based on metadata
+        summaryPrompt = `Generate a professional summary for this audio file:
+        
+File Name: ${file.name}
+File Type: ${file.file_type}
+Department: ${file.department_name || 'General'}
+Folder: ${file.folder_name || 'Root'}
+Description: ${file.description || 'No description provided'}
+
+Please provide:
+1. A brief description of what this audio likely contains based on the filename
+2. Potential use cases for this audio in a corporate environment
+3. Suggested categories (meeting, training, presentation, etc.)
+4. Recommendations for accessibility and usage
+
+Keep the summary professional and concise (under 300 words).`
+        hasContent = true
+      } else if (file.mime_type?.includes('zip') || file.mime_type?.includes('archive')) {
+        console.log(`📦 [AI-SUMMARY] Processing archive file: ${file.name}`)
+        // For archive files, generate summary based on metadata
+        summaryPrompt = `Generate a professional summary for this archive file:
+        
+File Name: ${file.name}
+File Type: ${file.file_type}
+Department: ${file.department_name || 'General'}
+Folder: ${file.folder_name || 'Root'}
+Description: ${file.description || 'No description provided'}
+
+Please provide:
+1. A brief description of what this archive likely contains based on the filename
+2. Potential contents and use cases in a corporate environment
+3. Suggested extraction and organization recommendations
+4. Security considerations for archive files
+
+Keep the summary professional and concise (under 300 words).`
+        hasContent = true
+      } else if (content && content.trim().length >= 50) {
+        console.log(`📄 [AI-SUMMARY] Processing text-based file with extracted content: ${content.length} chars`)
+        // For text-based files with extracted content
+        summaryPrompt = content
+        hasContent = true
+      } else if (file.description && file.description.trim().length >= 10) {
+        console.log(`📝 [AI-SUMMARY] Processing file with description: ${file.description.length} chars`)
+        // Fallback to description-based summary
+        summaryPrompt = `Generate a professional summary for this file:
+        
+File Name: ${file.name}
+File Type: ${file.file_type}
+Department: ${file.department_name || 'General'}
+Description: ${file.description}
+
+Please provide a concise professional summary based on the available information.`
+        hasContent = true
+      }
+      
+      if (!hasContent) {
+        console.error(`❌ [AI-SUMMARY] No content available for file ${fileId}`)
         return { success: false, error: 'Insufficient content to generate summary' }
       }
+
+      console.log(`🤖 [AI-SUMMARY] Calling AI service with prompt length: ${summaryPrompt.length}`)
 
       // Import AI service dynamically
       const { createAIService } = await import('@/lib/services/ai-service')
@@ -996,10 +1107,11 @@ export class FileService {
       // Generate summary
       const summaryResult = await aiService.generateContent({
         type: 'summary',
-        content,
+        content: summaryPrompt,
         context: {
           fileName: file.name,
           fileType: file.file_type,
+          mimeType: file.mime_type,
           department: file.department_name
         },
         options: {
@@ -1008,10 +1120,50 @@ export class FileService {
         }
       })
 
+      console.log(`✅ [AI-SUMMARY] AI service returned result:`, {
+        resultType: typeof summaryResult.result,
+        resultLength: Array.isArray(summaryResult.result) ? summaryResult.result.length : summaryResult.result?.length,
+        model: summaryResult.model,
+        tokensUsed: summaryResult.tokensUsed
+      })
+
       // Store the summary
       const summaryContent = Array.isArray(summaryResult.result) 
         ? summaryResult.result.join('\n') 
         : summaryResult.result
+
+      // Handle organization admin vs employee user
+      let validUserId: number | null = null
+      
+      if (userId) {
+        // Check if this is an organization admin or employee
+        const userCheck = await executeQuery<{ id: number }>(`
+          SELECT id FROM organization_employees WHERE id = ? AND organization_id = ?
+        `, [userId, organizationId])
+        
+        if (userCheck && userCheck.length > 0) {
+          // Valid employee ID
+          validUserId = userId
+        } else {
+          // Might be organization admin, get or create system employee
+          const { getOrCreateSystemEmployee } = await import('@/lib/auth')
+          try {
+            // Get organization admin email for system employee creation
+            const orgData = await executeQuery<{ admin_email: string }>(`
+              SELECT admin_email FROM organizations WHERE id = ?
+            `, [organizationId])
+            
+            if (orgData && orgData.length > 0) {
+              validUserId = await getOrCreateSystemEmployee(organizationId, orgData[0].admin_email)
+            }
+          } catch (error) {
+            console.warn('Could not create system employee, using NULL for generated_by:', error)
+            validUserId = null
+          }
+        }
+      }
+
+      console.log(`💾 [AI-SUMMARY] Storing summary in database for file ${fileId}`)
 
       await executeSingle(`
         INSERT INTO ai_generated_content (
@@ -1027,13 +1179,14 @@ export class FileService {
         fileId,
         organizationId,
         summaryContent,
-        userId,
-        'gpt-3.5-turbo'
+        validUserId,
+        summaryResult.model || 'gpt-3.5-turbo'
       ])
 
+      console.log(`✅ [AI-SUMMARY] Summary stored successfully for file ${fileId}`)
       return { success: true, summary: summaryContent }
     } catch (error) {
-      console.error('Error generating AI summary:', error)
+      console.error(`❌ [AI-SUMMARY] Error generating AI summary for file ${fileId}:`, error)
       return { 
         success: false, 
         error: error instanceof Error ? error.message : 'Failed to generate summary' 

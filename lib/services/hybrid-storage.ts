@@ -131,7 +131,18 @@ export class HybridStorageService {
             'text/plain',
             'image/jpeg',
             'image/png',
-            'image/gif'
+            'image/gif',
+            'image/bmp',
+            'image/tiff',
+            'video/mp4',
+            'video/avi',
+            'video/quicktime',
+            'video/x-msvideo',
+            'audio/mpeg',
+            'audio/wav',
+            'audio/mp3',
+            'application/zip',
+            'application/x-zip-compressed'
           ]
         }
       } else {
@@ -147,7 +158,18 @@ export class HybridStorageService {
           'text/plain',
           'image/jpeg',
           'image/png',
-          'image/gif'
+          'image/gif',
+          'image/bmp',
+          'image/tiff',
+          'video/mp4',
+          'video/avi',
+          'video/quicktime',
+          'video/x-msvideo',
+          'audio/mpeg',
+          'audio/wav',
+          'audio/mp3',
+          'application/zip',
+          'application/x-zip-compressed'
         ]
       }
 
@@ -198,7 +220,18 @@ export class HybridStorageService {
           'text/plain',
           'image/jpeg',
           'image/png',
-          'image/gif'
+          'image/gif',
+          'image/bmp',
+          'image/tiff',
+          'video/mp4',
+          'video/avi',
+          'video/quicktime',
+          'video/x-msvideo',
+          'audio/mpeg',
+          'audio/wav',
+          'audio/mp3',
+          'application/zip',
+          'application/x-zip-compressed'
         ]),
         storage_quota_bytes: 10737418240, // 10GB default
         storage_used_bytes: 0
@@ -554,6 +587,13 @@ export class HybridStorageService {
         ORDER BY is_primary DESC, created_at ASC
       `, [fileId])
 
+      console.log('Storage locations found:', locations.length, locations.map(l => ({
+        id: l.id,
+        storage_type: l.storage_type,
+        is_primary: l.is_primary,
+        location_path: l.location_path
+      })))
+
       if (locations.length === 0) {
         throw new Error('File storage locations not found')
       }
@@ -638,16 +678,34 @@ export class HybridStorageService {
     buffer: Buffer
     metadata: any
   }> {
+    console.log('Retrieving from location:', {
+      storage_type: location.storage_type,
+      location_path: location.location_path,
+      is_primary: location.is_primary
+    })
+
     switch (location.storage_type) {
       case 's3':
-        const s3Result = await this.s3Service.downloadFile(location.location_path)
+        console.log('Attempting S3 download...')
+        const s3Buffer = await this.s3Service.downloadFile(location.location_path)
+        console.log('S3 download result:', {
+          hasBuffer: !!s3Buffer,
+          bufferLength: s3Buffer?.length,
+          isBuffer: Buffer.isBuffer(s3Buffer)
+        })
         return {
-          buffer: s3Result.buffer,
-          metadata: s3Result.metadata
+          buffer: s3Buffer,
+          metadata: {} // S3 service doesn't return metadata in downloadFile
         }
 
       case 'local':
+        console.log('Attempting local download...')
         const localResult = await this.localService.downloadFile(location.location_path)
+        console.log('Local download result:', {
+          hasBuffer: !!localResult?.buffer,
+          bufferLength: localResult?.buffer?.length,
+          hasMetadata: !!localResult?.metadata
+        })
         return {
           buffer: localResult.buffer,
           metadata: localResult.metadata

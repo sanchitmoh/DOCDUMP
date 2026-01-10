@@ -46,6 +46,30 @@ export async function executeQuery<T = any>(
   }
 }
 
+// Execute complex query using query() method (for queries that have issues with execute())
+export async function executeComplexQuery<T = any>(
+  query: string,
+  params: any[] = []
+): Promise<T[]> {
+  try {
+    const pool = getPool()
+    const [rows] = await pool.query(query, params)
+    return rows as T[]
+  } catch (error) {
+    console.error('Database complex query error:', error)
+    console.error('Query:', query)
+    console.error('Params:', params)
+    
+    // Provide more specific error information
+    if (error instanceof Error) {
+      console.error('Error message:', error.message)
+      console.error('Error stack:', error.stack)
+    }
+    
+    throw error // Re-throw the original error instead of a generic one
+  }
+}
+
 // Execute single query (for INSERT, UPDATE, DELETE)
 export async function executeSingle(
   query: string,

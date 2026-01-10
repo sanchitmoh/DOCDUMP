@@ -50,12 +50,20 @@ export default function YourContributions() {
 
       if (response.ok) {
         const data = await response.json()
-        setContributions(data.contributions || [])
+        if (data.success) {
+          setContributions(data.contributions || [])
+        } else {
+          console.error('API returned error:', data.error)
+          setContributions([])
+        }
       } else {
-        console.error('Failed to fetch contributions')
+        const errorData = await response.json()
+        console.error('Failed to fetch contributions:', errorData.error)
+        setContributions([])
       }
     } catch (error) {
       console.error('Error fetching contributions:', error)
+      setContributions([])
     } finally {
       setLoading(false)
     }
@@ -68,6 +76,10 @@ export default function YourContributions() {
   )
 
   const deleteContribution = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this document? This action cannot be undone.')) {
+      return
+    }
+
     try {
       const response = await fetch('/api/contributions', {
         method: 'DELETE',
@@ -81,10 +93,13 @@ export default function YourContributions() {
       if (response.ok) {
         setContributions(contributions.filter((doc) => doc.id !== id))
       } else {
-        console.error('Failed to delete contribution')
+        const errorData = await response.json()
+        console.error('Failed to delete contribution:', errorData.error)
+        alert('Failed to delete document: ' + (errorData.error || 'Unknown error'))
       }
     } catch (error) {
       console.error('Error deleting contribution:', error)
+      alert('Error deleting document. Please try again.')
     }
   }
 
@@ -114,7 +129,7 @@ export default function YourContributions() {
             description: editFormData.description,
             tags: editFormData.tags,
             department: editFormData.department,
-            status: editFormData.status
+            visibility: editFormData.status === 'published' ? 'org' : 'private' // Map status to visibility
           })
         })
 
@@ -134,10 +149,13 @@ export default function YourContributions() {
           )
           setEditingDoc(null)
         } else {
-          console.error('Failed to update contribution')
+          const errorData = await response.json()
+          console.error('Failed to update contribution:', errorData.error)
+          alert('Failed to update document: ' + (errorData.error || 'Unknown error'))
         }
       } catch (error) {
         console.error('Error updating contribution:', error)
+        alert('Error updating document. Please try again.')
       }
     }
   }

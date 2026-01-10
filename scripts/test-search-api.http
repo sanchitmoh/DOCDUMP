@@ -1,0 +1,49 @@
+# Test Search API Endpoints
+# Use with REST Client extension in VS Code or similar tool
+
+### Health Check
+GET http://localhost:3000/api/search/manage
+Content-Type: application/json
+
+### Basic Search Test
+GET http://localhost:3000/api/search?q=test&page=1&page_size=10
+Content-Type: application/json
+
+### Advanced Search Test
+POST http://localhost:3000/api/search
+Content-Type: application/json
+
+{
+  "query": "document",
+  "filters": {
+    "file_type": ["pdf", "doc"],
+    "department": ["Engineering"]
+  },
+  "search_type": "basic",
+  "highlight": true,
+  "pagination": {
+    "from": 0,
+    "size": 20
+  }
+}
+
+### Search Suggestions Test
+GET http://localhost:3000/api/search/suggestions?q=doc
+Content-Type: application/json
+
+### Bulk Index Test
+POST http://localhost:3000/api/search/manage
+Content-Type: application/json
+
+{
+  "action": "bulk_index"
+}
+
+### Index Single File Test
+POST http://localhost:3000/api/search/manage
+Content-Type: application/json
+
+{
+  "action": "index_file",
+  "fileId": "1"
+}

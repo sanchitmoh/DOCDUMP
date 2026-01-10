@@ -1,8 +1,9 @@
 "use client"
 
 import type React from "react"
-import { AIChatbox } from "@/components/ai-chatbox"
+import { AIChatWrapper } from "@/components/ai-chat-wrapper"
 import { AuthProvider } from "@/context/auth-context"
+import { FileProvider } from "@/context/file-context"
 import { VideoBackground } from "@/components/video-background"
 import { ToastContainer } from "@/components/toast-container"
 import { ToastProvider } from "@/context/toast-context"
@@ -21,10 +22,12 @@ export function RootLayoutClient({
   return (
     <AuthProvider>
       <ToastProvider>
-        <VideoBackground />
-        <AIChatbox />
-        <div className="relative z-10">{children}</div>
-        <ToastContainerWrapper />
+        <FileProvider>
+          <VideoBackground />
+          <AIChatWrapper />
+          <div className="relative z-10">{children}</div>
+          <ToastContainerWrapper />
+        </FileProvider>
       </ToastProvider>
     </AuthProvider>
   )

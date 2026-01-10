@@ -475,6 +475,37 @@ export async function POST(request: NextRequest) {
               debug.log('AI-DELAYED', 'Performing document analysis')
               const analysis = await aiService.analyzeDocument(content, aiContext)
               
+              // Handle organization admin vs employee user
+              let validUserId: number | null = null
+              
+              if (userId) {
+                // Check if this is an organization admin or employee
+                const userCheck = await executeQuery<{ id: number }>(`
+                  SELECT id FROM organization_employees WHERE id = ? AND organization_id = ?
+                `, [userId, organizationId])
+                
+                if (userCheck && userCheck.length > 0) {
+                  // Valid employee ID
+                  validUserId = userId
+                } else {
+                  // Might be organization admin, get or create system employee
+                  const { getOrCreateSystemEmployee } = await import('@/lib/auth')
+                  try {
+                    // Get organization admin email for system employee creation
+                    const orgData = await executeQuery<{ admin_email: string }>(`
+                      SELECT admin_email FROM organizations WHERE id = ?
+                    `, [organizationId])
+                    
+                    if (orgData && orgData.length > 0) {
+                      validUserId = await getOrCreateSystemEmployee(organizationId, orgData[0].admin_email)
+                    }
+                  } catch (error) {
+                    debug.warn('AI-DELAYED', 'Could not create system employee, using NULL for generated_by', error)
+                    validUserId = null
+                  }
+                }
+              }
+              
               // Store analysis results
               await executeSingle(`
                 INSERT INTO ai_generated_content (
@@ -485,7 +516,7 @@ export async function POST(request: NextRequest) {
                 storageResult.fileId,
                 organizationId,
                 JSON.stringify(analysis),
-                userId
+                validUserId
               ])
 
               debug.success('AI-DELAYED', 'Document analysis completed and saved', {
@@ -504,6 +535,48 @@ export async function POST(request: NextRequest) {
             debug.error('AI-DELAYED', 'AI processing failed', aiError)
           }
         }, 5000) // Increased delay to 5 seconds for better text extraction
+
+        // NEW: Enhanced AI Assistant Processing
+        if (process.env.ENABLE_AI_ANALYSIS === 'true') {
+          setTimeout(async () => {
+            debug.log('AI-ENHANCED', 'Starting enhanced AI assistant processing', { fileId: storageResult.fileId })
+            
+            try {
+              // Process file for advanced analytics
+              const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/ai-assistant/process-file`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  fileId: storageResult.fileId,
+                  fileName: file.name,
+                  fileContent: fileBuffer.toString('base64'),
+                  userId: createdBy || userId,
+                  orgId: organizationId,
+                  fileType: getFileTypeFromMime(file.type)
+                })
+              });
+
+              if (response.ok) {
+                const result = await response.json();
+                if (result.success) {
+                  debug.success('AI-ENHANCED', 'Enhanced AI processing completed', {
+                    fileId: storageResult.fileId,
+                    summary: result.data.summary?.substring(0, 100) + '...',
+                    insightsCount: result.data.insights?.length || 0,
+                    questionsCount: result.data.suggestedQuestions?.length || 0,
+                    dataType: result.data.analytics?.dataType
+                  });
+                } else {
+                  debug.error('AI-ENHANCED', 'Enhanced AI processing failed', result.error);
+                }
+              } else {
+                debug.error('AI-ENHANCED', 'Enhanced AI processing request failed', response.statusText);
+              }
+            } catch (enhancedAiError) {
+              debug.error('AI-ENHANCED', 'Enhanced AI processing error', enhancedAiError);
+            }
+          }, 7000); // Process after basic AI processing
+        }
 
       } catch (aiError) {
         debug.error('AI', 'AI service initialization failed', aiError)

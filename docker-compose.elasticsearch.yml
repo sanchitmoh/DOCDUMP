@@ -30,6 +30,11 @@ services:
       - thread_pool.write.queue_size=1000
       - thread_pool.search.queue_size=1000
       
+      # CORS Settings for Elasticsearch Head
+      - http.cors.enabled=true
+      - http.cors.allow-methods=OPTIONS,HEAD,GET,POST,PUT,DELETE
+      - http.cors.allow-headers=X-Requested-With,X-Auth-Token,Content-Type,Content-Length,Authorization
+      
       # Logging
       - logger.org.elasticsearch.deprecation=warn
       
@@ -44,7 +49,6 @@ services:
     volumes:
       - elasticsearch_data:/usr/share/elasticsearch/data
       - elasticsearch_logs:/usr/share/elasticsearch/logs
-      - ./elasticsearch/config:/usr/share/elasticsearch/config:ro
       - ./elasticsearch/plugins:/usr/share/elasticsearch/plugins
     
     ports:
@@ -137,6 +141,10 @@ services:
     depends_on:
       - elasticsearch
     restart: unless-stopped
+    environment:
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=elastic
+      - ELASTICSEARCH_PASSWORD=CorporateLib2024!
 
 volumes:
   elasticsearch_data:

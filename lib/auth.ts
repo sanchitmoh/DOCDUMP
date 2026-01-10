@@ -89,11 +89,25 @@ export function authenticateRequest(request: NextRequest): AuthResult {
       return { success: false, error: 'Invalid or expired token' }
     }
 
-    // Add userId for backward compatibility
+    // Handle different user types
+    let userId: number
+    let organizationId: number
+
+    if (decoded.type === 'organization') {
+      // For organization admins, use the organization ID as organizationId
+      // and we'll need to get or create a system employee record
+      organizationId = decoded.id
+      userId = decoded.id // This will be handled in the service layer
+    } else {
+      // For employees, use the employee ID as userId
+      userId = decoded.id
+      organizationId = decoded.organizationId || decoded.id
+    }
+
     const user = {
       ...decoded,
-      userId: decoded.id,
-      organizationId: decoded.organizationId || decoded.id
+      userId,
+      organizationId
     }
 
     return { success: true, user }

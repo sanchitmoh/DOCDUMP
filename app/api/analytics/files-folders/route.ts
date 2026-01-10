@@ -1,22 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createFolderService } from '@/lib/services/folder-service'
 import { createFileService } from '@/lib/services/file-service'
-import { verifyToken } from '@/lib/auth'
+import { authenticateRequest } from '@/lib/auth'
 
 export async function GET(request: NextRequest) {
   try {
     // Verify authentication
-    const token = request.headers.get('authorization')?.replace('Bearer ', '')
-    if (!token) {
-      return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+    const auth = authenticateRequest(request)
+    if (!auth.success || !auth.user) {
+      return NextResponse.json({ error: auth.error || 'Authentication failed' }, { status: 401 })
     }
 
-    const decoded = verifyToken(token)
-    if (!decoded) {
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 })
-    }
-
-    const { organizationId, userType } = decoded
+    const { organizationId, type: userType } = auth.user
 
     // Only organization admins can view analytics
     if (userType !== 'organization') {

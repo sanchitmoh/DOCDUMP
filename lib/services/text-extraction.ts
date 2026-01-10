@@ -454,7 +454,10 @@ export class TextExtractionService {
    */
   async extractFromExcel(filePath: string): Promise<{ text: string; metadata: any }> {
     try {
-      const workbook = XLSX.readFile(filePath)
+      // Use buffer reading to handle paths with spaces on Windows
+      const fs = require('fs');
+      const buffer = fs.readFileSync(filePath);
+      const workbook = XLSX.read(buffer, { type: 'buffer' });
       let allText = ''
       const sheets: any = {}
 
