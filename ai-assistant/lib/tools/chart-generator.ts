@@ -113,34 +113,185 @@ class ChartGenerator {
   }
 
   private async getChartData(query: string, orgId: string, documentIds?: string[]): Promise<any[]> {
-    // Mock sales data - in real implementation, this would fetch from your data sources
-    const salesData = [
-      { month: 'Jan', revenue: 2400000, growth: 8.2, department: 'Sales' },
-      { month: 'Feb', revenue: 2600000, growth: 12.1, department: 'Sales' },
-      { month: 'Mar', revenue: 2800000, growth: 15.3, department: 'Sales' },
-      { month: 'Apr', revenue: 2200000, growth: -8.5, department: 'Sales' },
-      { month: 'May', revenue: 2900000, growth: 18.7, department: 'Sales' },
-      { month: 'Jun', revenue: 3100000, growth: 22.3, department: 'Sales' },
-      { month: 'Jul', revenue: 2100000, growth: -15.2, department: 'Sales' },
-      { month: 'Aug', revenue: 3200000, growth: 25.1, department: 'Sales' },
-      { month: 'Sep', revenue: 3400000, growth: 28.9, department: 'Sales' },
-      { month: 'Oct', revenue: 3600000, growth: 32.4, department: 'Sales' }
-    ];
-
-    // Department breakdown data
-    const departmentData = [
-      { department: 'Sales', revenue: 15000000, employees: 45 },
-      { department: 'Marketing', revenue: 3200000, employees: 12 },
-      { department: 'Engineering', revenue: 8500000, employees: 28 },
-      { department: 'Support', revenue: 2100000, employees: 15 }
-    ];
-
-    // Return appropriate data based on query
-    if (query.toLowerCase().includes('department')) {
-      return departmentData;
-    }
+    // Import database utilities
+    const { executeQuery } = await import('../../../lib/database');
     
-    return salesData;
+    const queryLower = query.toLowerCase();
+    
+    try {
+      // Fetch real data based on query type
+      
+      // Department-based queries
+      if (queryLower.includes('department')) {
+        const departmentData = await executeQuery(`
+          SELECT 
+            d.name as department,
+            COUNT(DISTINCT f.id) as file_count,
+            COUNT(DISTINCT f.created_by) as employee_count,
+            SUM(f.size_bytes) as total_size,
+            AVG(f.view_count) as avg_views,
+            AVG(f.download_count) as avg_downloads
+          FROM departments d
+          LEFT JOIN files f ON f.department = d.name AND f.organization_id = d.organization_id AND f.is_deleted = 0
+          WHERE d.organization_id = ?
+          GROUP BY d.name
+          ORDER BY file_count DESC
+        `, [orgId]);
+        
+        return departmentData.map((row: any) => ({
+          department: row.department,
+          value: row.file_count,
+          revenue: row.file_count * 1000, // Mock revenue calculation
+          employees: row.employee_count,
+          totalSize: row.total_size,
+          avgViews: row.avg_views || 0,
+          avgDownloads: row.avg_downloads || 0
+        }));
+      }
+      
+      // File type distribution
+      if (queryLower.includes('file type') || queryLower.includes('document type')) {
+        const fileTypeData = await executeQuery(`
+          SELECT 
+            file_type,
+            COUNT(*) as count,
+            SUM(size_bytes) as total_size,
+            AVG(view_count) as avg_views
+          FROM files
+          WHERE organization_id = ? AND is_deleted = 0
+          GROUP BY file_type
+          ORDER BY count DESC
+        `, [orgId]);
+        
+        return fileTypeData.map((row: any) => ({
+          name: row.file_type || 'Other',
+          value: row.count,
+          totalSize: row.total_size,
+          avgViews: row.avg_views || 0
+        }));
+      }
+      
+      // Monthly upload trends
+      if (queryLower.includes('monthly') || queryLower.includes('trend') || queryLower.includes('over time')) {
+        const monthlyData = await executeQuery(`
+          SELECT 
+            DATE_FORMAT(created_at, '%Y-%m') as month,
+            DATE_FORMAT(created_at, '%b %Y') as month_name,
+            COUNT(*) as count,
+            SUM(size_bytes) as total_size,
+            AVG(view_count) as avg_views
+          FROM files
+          WHERE organization_id = ? AND is_deleted = 0
+            AND created_at >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
+          GROUP BY DATE_FORMAT(created_at, '%Y-%m'), DATE_FORMAT(created_at, '%b %Y')
+          ORDER BY month ASC
+        `, [orgId]);
+        
+        // Calculate growth rates
+        return monthlyData.map((row: any, index: number) => {
+          const prevCount = index > 0 ? monthlyData[index - 1].count : row.count;
+          const growth = prevCount > 0 ? ((row.count - prevCount) / prevCount * 100) : 0;
+          
+          return {
+            month: row.month_name,
+            value: row.count,
+            revenue: row.count * 1000, // Mock revenue
+            growth: parseFloat(growth.toFixed(1)),
+            totalSize: row.total_size,
+            avgViews: row.avg_views || 0
+          };
+        });
+      }
+      
+      // User/Employee activity
+      if (queryLower.includes('user') || queryLower.includes('employee') || queryLower.includes('contributor')) {
+        const userData = await executeQuery(`
+          SELECT 
+            oe.full_name as name,
+            COUNT(DISTINCT f.id) as file_count,
+            SUM(f.view_count) as total_views,
+            SUM(f.download_count) as total_downloads,
+            MAX(f.created_at) as last_upload
+          FROM organization_employees oe
+          LEFT JOIN files f ON f.created_by = oe.id AND f.is_deleted = 0
+          WHERE oe.organization_id = ?
+          GROUP BY oe.id, oe.full_name
+          HAVING file_count > 0
+          ORDER BY file_count DESC
+          LIMIT 10
+        `, [orgId]);
+        
+        return userData.map((row: any) => ({
+          name: row.name,
+          value: row.file_count,
+          totalViews: row.total_views || 0,
+          totalDownloads: row.total_downloads || 0,
+          lastUpload: row.last_upload
+        }));
+      }
+      
+      // Country/Location data (if available in your schema)
+      if (queryLower.includes('country') || queryLower.includes('location')) {
+        // This would need a country field in your database
+        // For now, return empty array or mock data
+        return [
+          { name: 'United States', value: 45, count: 45 },
+          { name: 'United Kingdom', value: 23, count: 23 },
+          { name: 'Canada', value: 18, count: 18 },
+          { name: 'Australia', value: 14, count: 14 }
+        ];
+      }
+      
+      // Rank/Performance data
+      if (queryLower.includes('rank') || queryLower.includes('top') || queryLower.includes('performance')) {
+        const topFiles = await executeQuery(`
+          SELECT 
+            f.name,
+            f.file_type,
+            f.view_count,
+            f.download_count,
+            (f.view_count + f.download_count * 2) as engagement_score
+          FROM files f
+          WHERE f.organization_id = ? AND f.is_deleted = 0
+          ORDER BY engagement_score DESC
+          LIMIT 10
+        `, [orgId]);
+        
+        return topFiles.map((row: any, index: number) => ({
+          rank: index + 1,
+          name: row.name,
+          value: row.engagement_score,
+          views: row.view_count,
+          downloads: row.download_count,
+          fileType: row.file_type
+        }));
+      }
+      
+      // Default: Return general statistics
+      const generalStats = await executeQuery(`
+        SELECT 
+          DATE_FORMAT(created_at, '%b') as month,
+          COUNT(*) as count,
+          SUM(size_bytes) as total_size
+        FROM files
+        WHERE organization_id = ? AND is_deleted = 0
+          AND created_at >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
+        GROUP BY DATE_FORMAT(created_at, '%Y-%m'), DATE_FORMAT(created_at, '%b')
+        ORDER BY created_at ASC
+      `, [orgId]);
+      
+      return generalStats.map((row: any) => ({
+        month: row.month,
+        value: row.count,
+        revenue: row.count * 1000,
+        totalSize: row.total_size
+      }));
+      
+    } catch (error) {
+      console.error('Error fetching chart data:', error);
+      // Return empty array on error
+      return [];
+    }
   }
 
   private generateChartConfig(

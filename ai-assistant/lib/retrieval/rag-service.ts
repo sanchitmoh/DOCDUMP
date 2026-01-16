@@ -107,47 +107,149 @@ class RAGService {
     documentIds?: string[]
   ): Promise<DocumentChunk[]> {
     try {
-      // Search using MySQL fulltext search on files and extracted text
+      // Extract keywords from query (remove common words)
+      const stopWords = ['show', 'me', 'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'up', 'about', 'into', 'through', 'during', 'what', 'which', 'who', 'when', 'where', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 'can', 'will', 'just', 'should', 'now', 'find', 'get', 'give', 'list', 'docs', 'documents', 'files', 'are', 'key', 'insights', 'insight', 'uploaded', 'my', 'your'];
+      
+      const keywords = query.toLowerCase()
+        .split(/\s+/)
+        .filter(word => {
+          // Remove punctuation
+          const cleanWord = word.replace(/[^\w]/g, '');
+          // Keep words > 2 chars OR important 2-char words like "hr", "it"
+          const importantShortWords = ['hr', 'it', 'ai', 'qa', 'ui', 'ux'];
+          return cleanWord.length > 0 && 
+                 !stopWords.includes(cleanWord) && 
+                 (cleanWord.length > 2 || importantShortWords.includes(cleanWord));
+        })
+        .map(word => word.replace(/[^\w]/g, '')); // Clean punctuation
+      
+      console.log('🔍 Query:', query);
+      console.log('📌 Keywords extracted:', keywords.length > 0 ? keywords : 'none - will return all files');
+      
+      // Build search query with department filter
+      const queryLower = query.toLowerCase();
       let searchQuery = `
         SELECT 
           f.id,
           f.name,
+          f.department,
           f.ai_summary,
           f.ai_description,
+          f.tags,
           etc.extracted_text,
-          MATCH(f.name, f.ai_summary, f.ai_description) AGAINST (? IN NATURAL LANGUAGE MODE) as relevance_score
+          CASE 
+            WHEN f.name LIKE ? THEN 3
+            WHEN f.department LIKE ? THEN 3
+            WHEN f.ai_summary LIKE ? THEN 2
+            WHEN f.ai_description LIKE ? THEN 2
+            WHEN etc.extracted_text LIKE ? THEN 1
+            ELSE 0.5
+          END as relevance_score
         FROM files f
         LEFT JOIN extracted_text_content etc ON f.id = etc.file_id
         WHERE f.organization_id = ? 
-        AND f.is_deleted = 0 
-        AND f.ai_processed = 1
-        AND MATCH(f.name, f.ai_summary, f.ai_description) AGAINST (? IN NATURAL LANGUAGE MODE)
+        AND f.is_deleted = 0
       `;
       
-      const params: any[] = [query, orgId, query];
+      // Use keywords for search pattern
+      const searchPattern = keywords.length > 0 ? `%${keywords[0]}%` : `%${query}%`;
+      const params: any[] = [
+        searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, // CASE scores
+        orgId // WHERE organization_id
+      ];
+      
+      // Add keyword-based OR conditions
+      if (keywords.length > 0) {
+        const orConditions = keywords.map(() => 
+          `(f.name LIKE ? OR f.ai_summary LIKE ? OR f.ai_description LIKE ? OR f.department LIKE ? OR f.tags LIKE ? OR etc.extracted_text LIKE ?)`
+        ).join(' OR ');
+        
+        searchQuery += ` AND (${orConditions})`;
+        
+        keywords.forEach(keyword => {
+          const keywordPattern = `%${keyword}%`;
+          params.push(keywordPattern, keywordPattern, keywordPattern, keywordPattern, keywordPattern, keywordPattern);
+        });
+      } else {
+        // If no keywords, return all files (generic query like "show me my files")
+        console.log('⚠️ No keywords found, returning all files for organization');
+        // No additional WHERE clause needed - will return all files for the org
+      }
+      
+      // Add department filter if query mentions a department
+      if (queryLower.includes('engineering') || queryLower.includes('engineer') || queryLower.includes('enginering')) {
+        searchQuery += ` AND (f.department LIKE '%engineering%' OR f.department LIKE '%engineer%' OR f.department LIKE '%enginering%')`;
+      } else if (queryLower.includes('sales')) {
+        searchQuery += ` AND f.department LIKE '%sales%'`;
+      } else if (queryLower.includes('marketing')) {
+        searchQuery += ` AND f.department LIKE '%marketing%'`;
+      } else if (queryLower.includes('hr') || queryLower.includes('human resource')) {
+        searchQuery += ` AND (f.department LIKE '%hr%' OR f.department LIKE '%human%')`;
+      } else if (queryLower.includes('finance') || queryLower.includes('accounting')) {
+        searchQuery += ` AND (f.department LIKE '%finance%' OR f.department LIKE '%accounting%')`;
+      }
       
       if (documentIds && documentIds.length > 0) {
         searchQuery += ` AND f.id IN (${documentIds.map(() => '?').join(',')})`;
         params.push(...documentIds);
       }
       
-      searchQuery += ` ORDER BY relevance_score DESC LIMIT 10`;
+      searchQuery += ` ORDER BY relevance_score DESC, f.created_at DESC LIMIT 10`;
       
       const rows = await executeQuery(searchQuery, params);
       
-      return (rows as any[]).map((row, index) => ({
-        id: `text_${row.id}`,
-        content: row.extracted_text || row.ai_summary || row.ai_description || '',
-        type: 'text' as const,
-        metadata: {
-          documentId: row.id.toString(),
-          title: row.name,
-          section: 'Content'
-        },
-        score: row.relevance_score || 0.5
-      }));
+      return (rows as any[]).map((row, index) => {
+        // Build content from available fields
+        let content = '';
+        
+        // Add extracted text if available
+        if (row.extracted_text) {
+          content += row.extracted_text;
+        }
+        
+        // Add AI summary if available
+        if (row.ai_summary && row.ai_summary !== `AI-generated summary for ${row.name}. This document contains important information that has been analyzed by our AI system.`) {
+          content += '\n\nSummary: ' + row.ai_summary;
+        }
+        
+        // Add AI description if available
+        if (row.ai_description) {
+          content += '\n\nDescription: ' + row.ai_description;
+        }
+        
+        // Add AI insights if available (parse JSON)
+        if (row.ai_insights) {
+          try {
+            const insights = typeof row.ai_insights === 'string' ? JSON.parse(row.ai_insights) : row.ai_insights;
+            if (Array.isArray(insights) && insights.length > 0 && insights[0] !== 'This document contains structured data') {
+              content += '\n\nKey Insights:\n' + insights.map((i: string) => `• ${i}`).join('\n');
+            }
+          } catch (e) {
+            // Ignore JSON parse errors
+          }
+        }
+        
+        // If no content, use file name and metadata
+        if (!content.trim()) {
+          content = `File: ${row.name}\nDepartment: ${row.department || 'Not specified'}\nType: Excel spreadsheet\n\nNote: This file has not been fully processed yet. The actual content is not available for analysis.`;
+        }
+        
+        const snippet = content.length > 1000 ? content.substring(0, 1000) + '...' : content;
+        
+        return {
+          id: `text_${row.id}`,
+          content: snippet,
+          type: 'text' as const,
+          metadata: {
+            documentId: row.id.toString(),
+            title: row.name,
+            section: row.department || 'General'
+          },
+          score: row.relevance_score || 0.5
+        };
+      });
     } catch (error) {
-      console.error('Text search error:', error);
+      console.error('❌ Text search error:', error);
       return [];
     }
   }

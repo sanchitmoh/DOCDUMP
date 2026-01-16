@@ -12,7 +12,7 @@ class RedisMemory {
         timestamp: Date.now()
       };
       
-      await this.redis.setEx(key, 3600, JSON.stringify(data)); // 1 hour TTL
+      await this.redis.set(key, JSON.stringify(data), { ttl: 3600 }); // 1 hour TTL
     } catch (error) {
       console.error('Redis short-term memory save error:', error);
     }
@@ -37,7 +37,7 @@ class RedisMemory {
   async cacheEmbedding(text: string, embedding: number[]) {
     try {
       const key = `ai_embedding:${Buffer.from(text).toString('base64').substring(0, 100)}`;
-      await this.redis.setEx(key, 86400, JSON.stringify(embedding)); // 24 hours
+      await this.redis.set(key, JSON.stringify(embedding), { ttl: 86400 }); // 24 hours
     } catch (error) {
       console.error('Redis embedding cache error:', error);
       // Fallback to MySQL handled in mysql-memory.ts
@@ -59,15 +59,14 @@ class RedisMemory {
   // Rate limiting (fallback to MySQL if Redis fails)
   async checkRateLimit(userId: string, orgId: string): Promise<boolean> {
     try {
-      const key = `ai_rate_limit:${orgId}:${userId}`;
-      const current = await this.redis.incr(key);
-      
-      if (current === 1) {
-        await this.redis.expire(key, 3600); // 1 hour window
-      }
-      
       const maxRequests = parseInt(process.env.AI_MAX_REQUESTS_PER_HOUR || '500');
-      return current <= maxRequests;
+      const result = await this.redis.checkRateLimit(
+        `${orgId}:${userId}`,
+        maxRequests,
+        3600 // 1 hour window
+      );
+      
+      return result.allowed;
     } catch (error) {
       console.error('Redis rate limit error:', error);
       // Fallback to MySQL handled in mysql-memory.ts
@@ -79,7 +78,7 @@ class RedisMemory {
   async cacheAnalytics(key: string, data: any, ttlSeconds: number = 3600) {
     try {
       const cacheKey = `ai_analytics:${key}`;
-      await this.redis.setEx(cacheKey, ttlSeconds, JSON.stringify(data));
+      await this.redis.set(cacheKey, JSON.stringify(data), { ttl: ttlSeconds });
     } catch (error) {
       console.error('Redis analytics cache error:', error);
     }
@@ -100,7 +99,7 @@ class RedisMemory {
   async saveSession(sessionId: string, data: any, ttlSeconds: number = 7200) {
     try {
       const key = `ai_session:${sessionId}`;
-      await this.redis.setEx(key, ttlSeconds, JSON.stringify(data));
+      await this.redis.set(key, JSON.stringify(data), { ttl: ttlSeconds });
     } catch (error) {
       console.error('Redis session save error:', error);
     }
@@ -120,8 +119,8 @@ class RedisMemory {
   // Health check
   async healthCheck(): Promise<boolean> {
     try {
-      await this.redis.ping();
-      return true;
+      const result = await this.redis.healthCheck();
+      return result.status === 'healthy';
     } catch (error) {
       console.error('Redis health check failed:', error);
       return false;

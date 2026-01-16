@@ -445,6 +445,48 @@ export class OpenSearchService {
   }
 
   /**
+   * Get search suggestions based on partial query
+   */
+  async getSearchSuggestions(partialQuery: string, organizationId: string): Promise<string[]> {
+    try {
+      if (!partialQuery || partialQuery.length < 2) {
+        return []
+      }
+
+      // OpenSearch doesn't support completion suggester the same way as Elasticsearch
+      // Use a simple prefix search on titles instead
+      const response = await this.client.search({
+        index: this.getDocumentsIndex(),
+        body: {
+          query: {
+            bool: {
+              must: [
+                { term: { organization_id: organizationId } },
+                {
+                  multi_match: {
+                    query: partialQuery,
+                    fields: ['title^3', 'tags^2'],
+                    type: 'phrase_prefix'
+                  }
+                }
+              ]
+            }
+          },
+          size: 10,
+          _source: ['title']
+        }
+      })
+
+      const suggestions = response.body.hits.hits.map((hit: any) => hit._source.title)
+      // Remove duplicates
+      return [...new Set(suggestions)]
+    } catch (error) {
+      console.error('Search suggestions error:', error)
+      return []
+    }
+  }
+
+  /**
    * Delete a document
    */
   async deleteDocument(fileId: string, organizationId: string): Promise<boolean> {

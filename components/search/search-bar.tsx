@@ -27,8 +27,17 @@ export function SearchBar({
   const [isLoading, setIsLoading] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const suggestionsRef = useRef<HTMLDivElement>(null)
+  const lastInitialValue = useRef(initialValue)
 
   const debouncedQuery = useDebounce(query, 300)
+
+  // Update query only when initialValue changes from parent
+  useEffect(() => {
+    if (initialValue !== lastInitialValue.current) {
+      setQuery(initialValue)
+      lastInitialValue.current = initialValue
+    }
+  }, [initialValue])
 
   // Fetch suggestions
   useEffect(() => {

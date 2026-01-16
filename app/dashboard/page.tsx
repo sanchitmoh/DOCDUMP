@@ -2,16 +2,16 @@
 
 import { Navbar } from "@/components/navbar"
 import { Footer } from "@/components/footer"
-import { Clock, BookmarkCheck, Upload, Download, Eye, Star, ArrowRight, Search, X } from "lucide-react"
+import { Clock, BookmarkCheck, Upload, Download, Eye, Star, ArrowRight, Search, X, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { useState, useEffect } from "react"
 import { useAuth } from "@/context/auth-context"
 
 interface DashboardStats {
-  totalViews: number
+  viewCount: number
   savedDocuments: number
   contributions: number
-  totalDownloads: number
+  downloadCount: number
 }
 
 interface RecentDocument {
@@ -26,6 +26,7 @@ interface RecentDocument {
 export default function Dashboard() {
   const { user } = useAuth()
   const [searchQuery, setSearchQuery] = useState("")
+  const [searchDebounceTimer, setSearchDebounceTimer] = useState<NodeJS.Timeout | null>(null)
   const [filters, setFilters] = useState({
     searchBy: "all",
     docType: "all",
@@ -33,19 +34,94 @@ export default function Dashboard() {
   })
   const [showFilters, setShowFilters] = useState(false)
   const [stats, setStats] = useState<DashboardStats>({
-    totalViews: 0,
+    viewCount: 0,
     savedDocuments: 0,
     contributions: 0,
-    totalDownloads: 0
+    downloadCount: 0
   })
   const [recentlyViewed, setRecentlyViewed] = useState<RecentDocument[]>([])
   const [loading, setLoading] = useState(true)
+  const [searchResults, setSearchResults] = useState<RecentDocument[]>([])
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [searchTotal, setSearchTotal] = useState(0)
 
   useEffect(() => {
     if (user) {
       fetchDashboardData()
     }
   }, [user])
+
+  useEffect(() => {
+    // Debounce search to avoid too many API calls
+    if (searchDebounceTimer) {
+      clearTimeout(searchDebounceTimer)
+    }
+
+    if (searchQuery && user) {
+      const timer = setTimeout(() => {
+        performSearch()
+      }, 500) // Wait 500ms after user stops typing
+      setSearchDebounceTimer(timer)
+    } else {
+      setSearchResults([])
+      setSearchTotal(0)
+    }
+
+    return () => {
+      if (searchDebounceTimer) {
+        clearTimeout(searchDebounceTimer)
+      }
+    }
+  }, [searchQuery, user])
+
+  const performSearch = async () => {
+    if (!searchQuery.trim()) return
+
+    try {
+      setSearchLoading(true)
+      
+      const searchUrl = new URL('/api/search', window.location.origin)
+      searchUrl.searchParams.set('q', searchQuery)
+      searchUrl.searchParams.set('page', '1')
+      searchUrl.searchParams.set('page_size', '10')
+      searchUrl.searchParams.set('highlight', 'false')
+      searchUrl.searchParams.set('search_type', 'basic')
+
+      const response = await fetch(searchUrl.toString(), {
+        credentials: 'include'
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success && data.results) {
+          // Transform search results to match RecentDocument interface
+          const transformedResults = data.results.map((result: any) => ({
+            id: parseInt(result.file_id) || 0,
+            title: result.title || 'Untitled',
+            author: result.author || 'Unknown',
+            date: result.created_at || new Date().toISOString(),
+            views: 0, // Search results don't include view count
+            department: result.department || ''
+          }))
+          setSearchResults(transformedResults)
+          setSearchTotal(data.total || 0)
+        } else {
+          setSearchResults([])
+          setSearchTotal(0)
+        }
+      } else {
+        console.error('Search failed:', response.status)
+        setSearchResults([])
+        setSearchTotal(0)
+      }
+    } catch (error) {
+      console.error('Search error:', error)
+      setSearchResults([])
+      setSearchTotal(0)
+    } finally {
+      setSearchLoading(false)
+    }
+  }
 
   const fetchDashboardData = async () => {
     try {
@@ -77,28 +153,8 @@ export default function Dashboard() {
     }
   }
 
-  const searchResults = searchQuery
-    ? recentlyViewed.filter((doc) => {
-        const matchesSearch =
-          doc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          doc.author?.toLowerCase().includes(searchQuery.toLowerCase())
-
-        if (filters.searchBy === "name") {
-          return doc.title.toLowerCase().includes(searchQuery.toLowerCase())
-        } else if (filters.searchBy === "author") {
-          return doc.author?.toLowerCase().includes(searchQuery.toLowerCase())
-        }
-        return matchesSearch
-      })
-    : []
-
-  const recentlyViewedFiltered = searchQuery
-    ? recentlyViewed.filter(
-        (doc) =>
-          doc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          doc.author?.toLowerCase().includes(searchQuery.toLowerCase()),
-      )
-    : recentlyViewed
+  const displayedSearchResults = searchResults
+  const recentlyViewedFiltered = recentlyViewed
 
   if (!user) {
     return (
@@ -207,12 +263,18 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {searchQuery && searchResults.length > 0 && (
+          {searchQuery && (
             <div className="mb-8">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-semibold text-foreground">
                   Search Results{" "}
-                  <span className="text-sm text-muted-foreground font-normal">({searchResults.length} found)</span>
+                  {searchLoading ? (
+                    <span className="text-sm text-muted-foreground font-normal">
+                      <Loader2 className="w-4 h-4 inline animate-spin" />
+                    </span>
+                  ) : (
+                    <span className="text-sm text-muted-foreground font-normal">({searchTotal} found)</span>
+                  )}
                 </h2>
                 <button
                   onClick={() => setSearchQuery("")}
@@ -222,43 +284,56 @@ export default function Dashboard() {
                 </button>
               </div>
 
-              <div className="space-y-3">
-                {searchResults.map((doc) => (
-                  <Link
-                    key={doc.id}
-                    href={`/document/${doc.id}`}
-                    className="glass glow-hover p-4 rounded-lg flex items-center justify-between group"
-                  >
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-medium text-foreground group-hover:text-primary transition">{doc.title}</h3>
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary">
-                          Recently Viewed
-                        </span>
+              {searchLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                  <span className="ml-2 text-muted-foreground">Searching...</span>
+                </div>
+              ) : displayedSearchResults.length > 0 ? (
+                <div className="space-y-3">
+                  {displayedSearchResults.map((doc) => (
+                    <Link
+                      key={doc.id}
+                      href={`/document/${doc.id}`}
+                      className="glass glow-hover p-4 rounded-lg flex items-center justify-between group"
+                    >
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-medium text-foreground group-hover:text-primary transition">{doc.title}</h3>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {doc.author} • {new Date(doc.date).toLocaleDateString()}
+                          {doc.department && ` • ${doc.department}`}
+                        </p>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {doc.author} • {new Date(doc.date).toLocaleDateString()}
-                        {doc.department && ` • ${doc.department}`}
-                      </p>
+                      <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+                        <Eye className="w-4 h-4" />
+                        <span>{doc.views}</span>
+                        <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition" />
+                      </div>
+                    </Link>
+                  ))}
+                  {searchTotal > 10 && (
+                    <div className="text-center pt-4">
+                      <Link
+                        href={`/search?q=${encodeURIComponent(searchQuery)}`}
+                        className="text-sm text-primary hover:text-accent transition inline-flex items-center gap-1"
+                      >
+                        View all {searchTotal} results
+                        <ArrowRight className="w-4 h-4" />
+                      </Link>
                     </div>
-                    <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-                      <Eye className="w-4 h-4" />
-                      <span>{doc.views}</span>
-                      <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition" />
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {searchQuery && searchResults.length === 0 && (
-            <div className="mb-8 glass rounded-lg p-8 text-center">
-              <Search className="w-12 h-12 text-muted-foreground/50 mx-auto mb-3" />
-              <h3 className="text-lg font-semibold text-foreground mb-1">No results found</h3>
-              <p className="text-muted-foreground text-sm">
-                Try adjusting your search terms or filters to find what you're looking for.
-              </p>
+                  )}
+                </div>
+              ) : (
+                <div className="glass rounded-lg p-8 text-center">
+                  <Search className="w-12 h-12 text-muted-foreground/50 mx-auto mb-3" />
+                  <h3 className="text-lg font-semibold text-foreground mb-1">No results found</h3>
+                  <p className="text-muted-foreground text-sm">
+                    Try adjusting your search terms to find what you're looking for.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
@@ -270,7 +345,7 @@ export default function Dashboard() {
                   <div>
                     <p className="text-sm text-muted-foreground mb-1">Total Views</p>
                     <p className="text-2xl font-bold text-foreground">
-                      {loading ? "..." : stats.totalViews.toLocaleString()}
+                      {loading ? "..." : (stats.viewCount || 0).toLocaleString()}
                     </p>
                   </div>
                   <Eye className="w-8 h-8 text-primary/50" />
@@ -282,7 +357,7 @@ export default function Dashboard() {
                   <div>
                     <p className="text-sm text-muted-foreground mb-1">Saved Items</p>
                     <p className="text-2xl font-bold text-foreground">
-                      {loading ? "..." : stats.savedDocuments}
+                      {loading ? "..." : (stats.savedDocuments || 0)}
                     </p>
                   </div>
                   <BookmarkCheck className="w-8 h-8 text-yellow-500/50" />
@@ -294,7 +369,7 @@ export default function Dashboard() {
                   <div>
                     <p className="text-sm text-muted-foreground mb-1">Contributions</p>
                     <p className="text-2xl font-bold text-foreground">
-                      {loading ? "..." : stats.contributions}
+                      {loading ? "..." : (stats.contributions || 0)}
                     </p>
                   </div>
                   <Upload className="w-8 h-8 text-green-500/50" />
@@ -306,7 +381,7 @@ export default function Dashboard() {
                   <div>
                     <p className="text-sm text-muted-foreground mb-1">Downloads</p>
                     <p className="text-2xl font-bold text-foreground">
-                      {loading ? "..." : stats.totalDownloads.toLocaleString()}
+                      {loading ? "..." : (stats.downloadCount || 0).toLocaleString()}
                     </p>
                   </div>
                   <Download className="w-8 h-8 text-blue-500/50" />
@@ -385,7 +460,7 @@ export default function Dashboard() {
                       <div>
                         <h3 className="font-medium text-foreground">Saved Documents</h3>
                         <p className="text-xs text-muted-foreground mt-1">
-                          View your bookmarked documents ({stats.savedDocuments})
+                          View your bookmarked documents ({stats.savedDocuments || 0})
                         </p>
                       </div>
                       <ArrowRight className="w-4 h-4 text-muted-foreground" />
@@ -397,7 +472,7 @@ export default function Dashboard() {
                       <div>
                         <h3 className="font-medium text-foreground">Your Contributions</h3>
                         <p className="text-xs text-muted-foreground mt-1">
-                          Manage your uploaded documents ({stats.contributions})
+                          Manage your uploaded documents ({stats.contributions || 0})
                         </p>
                       </div>
                       <ArrowRight className="w-4 h-4 text-muted-foreground" />

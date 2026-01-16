@@ -34,6 +34,8 @@ export default function YourContributions() {
     department: "",
     status: "published",
   })
+  const [uploadingFile, setUploadingFile] = useState(false)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -112,6 +114,51 @@ export default function YourContributions() {
       department: doc.department,
       status: doc.status,
     })
+    setSelectedFile(null)
+  }
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setSelectedFile(e.target.files[0])
+    }
+  }
+
+  const handleReplaceFile = async () => {
+    if (!editingDoc || !selectedFile) {
+      alert('Please select a file to upload')
+      return
+    }
+
+    try {
+      setUploadingFile(true)
+
+      // Create form data for file upload
+      const formData = new FormData()
+      formData.append('file', selectedFile)
+      formData.append('fileId', editingDoc.id.toString())
+      formData.append('replaceExisting', 'true')
+
+      const response = await fetch('/api/files/replace', {
+        method: 'POST',
+        credentials: 'include',
+        body: formData
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        alert('File replaced successfully!')
+        setSelectedFile(null)
+        fetchContributions() // Refresh the list
+      } else {
+        const errorData = await response.json()
+        alert('Failed to replace file: ' + (errorData.error || 'Unknown error'))
+      }
+    } catch (error) {
+      console.error('Error replacing file:', error)
+      alert('Error replacing file. Please try again.')
+    } finally {
+      setUploadingFile(false)
+    }
   }
 
   const handleSaveEdit = async () => {
@@ -392,6 +439,56 @@ export default function YourContributions() {
                 </div>
 
                 <div className="space-y-4 mb-6">
+                  {/* File Replacement Section */}
+                  <div className="p-4 bg-secondary/50 rounded-lg border border-border">
+                    <label className="block text-sm font-medium text-foreground mb-2">
+                      Replace File (Optional)
+                    </label>
+                    <p className="text-xs text-muted-foreground mb-3">
+                      Upload a new file to replace the existing document. The old file will be archived.
+                    </p>
+                    
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="file"
+                        onChange={handleFileSelect}
+                        className="hidden"
+                        id="file-replace-input"
+                        disabled={uploadingFile}
+                      />
+                      <label
+                        htmlFor="file-replace-input"
+                        className="flex-1 px-4 py-2 bg-card border border-border rounded-lg text-foreground cursor-pointer hover:bg-secondary transition text-sm"
+                      >
+                        {selectedFile ? selectedFile.name : 'Choose file...'}
+                      </label>
+                      {selectedFile && (
+                        <button
+                          onClick={handleReplaceFile}
+                          disabled={uploadingFile}
+                          className="px-4 py-2 bg-primary hover:opacity-90 transition rounded-lg text-primary-foreground font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        >
+                          {uploadingFile ? (
+                            <>
+                              <span className="animate-spin">⏳</span>
+                              Uploading...
+                            </>
+                          ) : (
+                            <>
+                              <Upload className="w-4 h-4" />
+                              Replace
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                    {selectedFile && (
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Size: {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                      </p>
+                    )}
+                  </div>
+
                   <div>
                     <label className="block text-sm font-medium text-foreground mb-2">Title</label>
                     <input
@@ -464,7 +561,10 @@ export default function YourContributions() {
                     <Save className="w-4 h-4" /> Save Changes
                   </button>
                   <button
-                    onClick={() => setEditingDoc(null)}
+                    onClick={() => {
+                      setEditingDoc(null)
+                      setSelectedFile(null)
+                    }}
                     className="flex-1 px-4 py-2 bg-secondary hover:bg-secondary/80 transition rounded-lg text-foreground font-medium"
                   >
                     Cancel

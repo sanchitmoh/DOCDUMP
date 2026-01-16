@@ -312,7 +312,8 @@ export class ElasticsearchService {
 
       // Add text search based on search type
       if (query && query.trim() && query !== '*') {
-        const searchFields = ['title^3', 'content^2', 'extracted_text^1.5', 'author.text^1.2', 'department.text^1.1', 'tags.text^1.1']
+        // Optimized field list with better boosting
+        const searchFields = ['title^5', 'content^2', 'extracted_text^1.5', 'author^2', 'department^1.5', 'tags^2']
         
         switch (search_type) {
           case 'exact':
@@ -330,8 +331,8 @@ export class ElasticsearchService {
                 query: query,
                 fields: searchFields,
                 fuzziness: 'AUTO',
-                prefix_length: 1,
-                max_expansions: 50
+                prefix_length: 2,
+                max_expansions: 25
               }
             })
             break
@@ -339,14 +340,14 @@ export class ElasticsearchService {
             // Parse advanced query syntax (e.g., "title:report AND department:engineering")
             esQuery.bool.must.push(this.parseAdvancedQuery(query))
             break
-          default: // basic
+          default: // basic - optimized for speed
             esQuery.bool.must.push({
               multi_match: {
                 query: query,
                 fields: searchFields,
                 type: 'best_fields',
-                fuzziness: 'AUTO',
-                operator: 'and'
+                operator: 'or', // Changed from 'and' for faster results
+                minimum_should_match: '50%'
               }
             })
         }

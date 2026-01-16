@@ -104,23 +104,36 @@ export async function GET(request: NextRequest) {
     `, [userId, organizationId])
 
     // Format the results with rich metadata
-    const formattedResults = recentlyViewed.map(doc => ({
-      id: doc.id,
-      title: doc.title,
-      author: doc.author,
-      date: doc.date,
-      lastAccessed: doc.last_accessed,
-      lastAction: doc.last_action,
-      department: doc.department,
-      
-      // File properties
-      sizeBytes: doc.size_bytes,
-      mimeType: doc.mime_type,
-      fileType: doc.file_type,
-      tags: doc.tags ? JSON.parse(doc.tags) : [],
-      aiDescription: doc.ai_description,
-      visibility: doc.visibility,
-      storageProvider: doc.storage_provider,
+    const formattedResults = recentlyViewed.map(doc => {
+      // Safely parse tags
+      let tags: string[] = []
+      if (doc.tags) {
+        try {
+          const parsed = JSON.parse(doc.tags)
+          tags = Array.isArray(parsed) ? parsed : [String(parsed)]
+        } catch {
+          // If not valid JSON, treat as a single tag
+          tags = [String(doc.tags)]
+        }
+      }
+
+      return {
+        id: doc.id,
+        title: doc.title,
+        author: doc.author,
+        date: doc.date,
+        lastAccessed: doc.last_accessed,
+        lastAction: doc.last_action,
+        department: doc.department,
+        
+        // File properties
+        sizeBytes: doc.size_bytes,
+        mimeType: doc.mime_type,
+        fileType: doc.file_type,
+        tags,
+        aiDescription: doc.ai_description,
+        visibility: doc.visibility,
+        storageProvider: doc.storage_provider,
       
       // Document metadata
       documentMetadata: doc.document_title || doc.document_author || doc.page_count || doc.word_count ? {
@@ -160,7 +173,8 @@ export async function GET(request: NextRequest) {
         type: doc.primary_storage_type,
         path: doc.storage_path
       }
-    }))
+    }
+  })
 
     return NextResponse.json({
       success: true,

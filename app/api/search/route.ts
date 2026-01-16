@@ -2,6 +2,38 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSearchService } from '@/lib/search'
 import { authenticateRequest } from '@/lib/auth'
 
+// Simple in-memory cache for search results
+const searchCache = new Map<string, { data: any; timestamp: number }>()
+const CACHE_TTL = 60000 // 1 minute cache
+
+function getCacheKey(searchParams: URLSearchParams, organizationId: string): string {
+  const params = Array.from(searchParams.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([key, value]) => `${key}=${value}`)
+    .join('&')
+  return `${organizationId}:${params}`
+}
+
+function getFromCache(key: string): any | null {
+  const cached = searchCache.get(key)
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data
+  }
+  searchCache.delete(key)
+  return null
+}
+
+function setCache(key: string, data: any): void {
+  searchCache.set(key, { data, timestamp: Date.now() })
+  
+  // Clean old cache entries (keep max 100 entries)
+  if (searchCache.size > 100) {
+    const oldestKey = Array.from(searchCache.entries())
+      .sort((a, b) => a[1].timestamp - b[1].timestamp)[0][0]
+    searchCache.delete(oldestKey)
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     // Verify authentication
@@ -13,6 +45,16 @@ export async function GET(request: NextRequest) {
     const { organizationId } = auth.user
     if (!organizationId) {
       return NextResponse.json({ error: 'Organization ID not found' }, { status: 401 })
+    }
+
+    // Check cache first
+    const cacheKey = getCacheKey(request.nextUrl.searchParams, organizationId.toString())
+    const cachedResult = getFromCache(cacheKey)
+    if (cachedResult) {
+      return NextResponse.json({
+        ...cachedResult,
+        cached: true
+      })
     }
 
     // Parse search parameters
@@ -79,7 +121,7 @@ export async function GET(request: NextRequest) {
     const searchService = createSearchService()
     const searchResults = await searchService.searchDocuments(searchQuery)
 
-    return NextResponse.json({
+    const response = {
       success: true,
       ...searchResults,
       pagination: {
@@ -87,7 +129,12 @@ export async function GET(request: NextRequest) {
         page_size: pageSize,
         total_pages: Math.ceil(searchResults.total / pageSize)
       }
-    })
+    }
+
+    // Cache the result
+    setCache(cacheKey, response)
+
+    return NextResponse.json(response)
 
   } catch (error) {
     console.error('Search API error:', error)

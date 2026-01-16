@@ -38,13 +38,16 @@ export default function SearchPage() {
     const query = searchParams.get('q') || ''
     const page = parseInt(searchParams.get('page') || '1')
     
-    setCurrentQuery(query)
-    setCurrentPage(page)
-    
-    if (query) {
-      performSearch(query, page)
+    // Only update if values actually changed
+    if (query !== currentQuery || page !== currentPage) {
+      setCurrentQuery(query)
+      setCurrentPage(page)
+      
+      if (query) {
+        performSearch(query, page)
+      }
     }
-  }, [searchParams])
+  }, [searchParams]) // Remove currentQuery and currentPage from dependencies
 
   // Redirect if not authenticated
   useEffect(() => {
