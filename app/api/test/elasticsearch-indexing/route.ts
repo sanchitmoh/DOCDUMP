@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createElasticsearchService } from '@/lib/search/elasticsearch'
+import { createSearchService } from '@/lib/search'
 import { executeQuery } from '@/lib/database'
 
 export async function GET(request: NextRequest) {
   try {
-    const searchService = createElasticsearchService()
+    const searchService = createSearchService()
     
     // Test 1: Basic connection
     const healthCheck = await searchService.healthCheck()
@@ -104,7 +104,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const { action, fileId } = await request.json()
-    const searchService = createElasticsearchService()
+    const searchService = createSearchService()
 
     if (action === 'reindex-file' && fileId) {
       // Test manual indexing of a specific file

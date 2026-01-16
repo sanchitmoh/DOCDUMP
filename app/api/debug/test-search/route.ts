@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createElasticsearchService } from '@/lib/search/elasticsearch'
+import { createSearchService } from '@/lib/search'
 
 export async function GET(request: NextRequest) {
   try {
-    const searchService = createElasticsearchService()
+    const searchService = createSearchService()
     
     // Test different search queries
     const tests = []

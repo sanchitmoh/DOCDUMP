@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createElasticsearchService } from '@/lib/search/elasticsearch'
+import { createSearchService } from '@/lib/search'
 
 export async function POST(request: NextRequest) {
   try {
@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
 
-    const searchService = createElasticsearchService()
+    const searchService = createSearchService()
     
     // Create a simple test document
     const document = {

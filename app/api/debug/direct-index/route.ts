@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createElasticsearchService } from '@/lib/search/elasticsearch'
+import { createSearchService } from '@/lib/search'
 import { executeQuery } from '@/lib/database'
 
 export async function POST(request: NextRequest) {
@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
 
-    const searchService = createElasticsearchService()
+    const searchService = createSearchService()
     
     // Get file data
     const files = await executeQuery(`

@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
-import { createElasticsearchService } from '@/lib/search/elasticsearch'
+import { createSearchService } from '@/lib/search'
 
 export async function GET() {
   try {
-    const searchService = createElasticsearchService()
+    const searchService = createSearchService()
     
     // Test 1: Health check
     const health = await searchService.healthCheck()

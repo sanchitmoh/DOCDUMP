@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server'
-import { createElasticsearchService } from '@/lib/search/elasticsearch'
+import { createSearchService } from '@/lib/search'
 import { createTextExtractionService } from '@/lib/services/text-extraction'
 import { executeQuery } from '@/lib/database'
 
 export async function GET() {
   try {
-    const searchService = createElasticsearchService()
+    const searchService = createSearchService()
     const textExtractionService = createTextExtractionService()
     
     const tests = []
