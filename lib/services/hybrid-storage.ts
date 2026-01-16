@@ -95,6 +95,18 @@ export class HybridStorageService {
   private localService = createLocalStorageService()
 
   /**
+   * Check if running in serverless environment
+   */
+  private isServerlessEnvironment(): boolean {
+    return !!(
+      process.env.VERCEL ||
+      process.env.AWS_LAMBDA_FUNCTION_NAME ||
+      process.env.LAMBDA_TASK_ROOT ||
+      process.cwd().startsWith('/var/task')
+    )
+  }
+
+  /**
    * Get storage configuration for organization
    */
   async getStorageConfig(organizationId: number): Promise<StorageConfiguration | null> {
@@ -353,11 +365,23 @@ export class HybridStorageService {
           break
 
         case 'hybrid':
-          if (config.hybrid_primary_storage === 's3') {
+          const isServerless = this.isServerlessEnvironment()
+          
+          if (isServerless) {
+            console.warn('⚠️  Serverless environment detected - forcing S3-only storage')
+            console.warn('Local storage is not available in serverless environments')
+            // Force S3-only in serverless
+            primaryLocation = await this.storeS3(fileId, fileBuffer, storageKey, checksum, config, mimeType)
+          } else if (config.hybrid_primary_storage === 's3') {
             // Primary: S3, Backup: Local
             try {
               primaryLocation = await this.storeS3(fileId, fileBuffer, storageKey, checksum, config, mimeType)
-              backupLocation = await this.storeLocal(fileId, fileBuffer, storageKey, checksum, false)
+              try {
+                backupLocation = await this.storeLocal(fileId, fileBuffer, storageKey, checksum, false)
+              } catch (localError) {
+                console.warn('Local backup storage failed, continuing with S3 only:', localError)
+                // Continue without local backup
+              }
             } catch (s3Error) {
               console.warn('S3 storage failed, falling back to local storage as primary:', s3Error)
               // Fall back to local storage as primary
@@ -365,12 +389,18 @@ export class HybridStorageService {
             }
           } else {
             // Primary: Local, Backup: S3
-            primaryLocation = await this.storeLocal(fileId, fileBuffer, storageKey, checksum)
             try {
-              backupLocation = await this.storeS3(fileId, fileBuffer, storageKey, checksum, config, mimeType, false)
-            } catch (s3Error) {
-              console.warn('S3 backup storage failed, continuing with local only:', s3Error)
-              // Continue without S3 backup
+              primaryLocation = await this.storeLocal(fileId, fileBuffer, storageKey, checksum)
+              try {
+                backupLocation = await this.storeS3(fileId, fileBuffer, storageKey, checksum, config, mimeType, false)
+              } catch (s3Error) {
+                console.warn('S3 backup storage failed, continuing with local only:', s3Error)
+                // Continue without S3 backup
+              }
+            } catch (localError) {
+              console.warn('Local storage failed, falling back to S3 as primary:', localError)
+              // Fall back to S3 storage as primary
+              primaryLocation = await this.storeS3(fileId, fileBuffer, storageKey, checksum, config, mimeType, true)
             }
           }
           break
