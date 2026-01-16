@@ -1,14 +1,14 @@
 import { getRedisInstance } from '@/lib/cache/redis'
 import { createTextExtractionService } from '@/lib/services/text-extraction'
 import { createHybridStorageService } from '@/lib/services/hybrid-storage'
-import { createElasticsearchService } from '@/lib/search/elasticsearch'
+import { createSearchService } from '@/lib/search'
 import { executeQuery } from '@/lib/database'
 
 export class BackgroundProcessor {
   private redis = getRedisInstance()
   private textExtractionService = createTextExtractionService()
   private storageService = createHybridStorageService()
-  private searchService = createElasticsearchService()
+  private searchService = createSearchService()
   private isRunning = false
   private processingInterval: NodeJS.Timeout | null = null
 

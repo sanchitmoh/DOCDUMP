@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { testConnection } from '@/lib/database'
 import { createS3Service } from '@/lib/storage/s3'
 import { createLocalStorageService } from '@/lib/storage/local'
-import { createElasticsearchService } from '@/lib/search/elasticsearch'
+import { createSearchService } from '@/lib/search'
 import { getRedisInstance } from '@/lib/cache/redis'
 import { createHybridStorageService } from '@/lib/services/hybrid-storage'
 import { getBackgroundProcessor } from '@/lib/workers/background-processor'
@@ -61,22 +61,22 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Test Elasticsearch connection (if configured)
+    // Test OpenSearch/Elasticsearch connection (if configured)
     if (process.env.ELASTICSEARCH_URL) {
       try {
-        const esService = createElasticsearchService()
-        const esHealth = await esService.healthCheck()
-        results.checks.elasticsearch = esHealth
+        const searchService = createSearchService()
+        const searchHealth = await searchService.healthCheck()
+        results.checks.opensearch = searchHealth
       } catch (error) {
-        results.checks.elasticsearch = {
+        results.checks.opensearch = {
           status: 'unhealthy',
-          message: `Elasticsearch error: ${error instanceof Error ? error.message : 'Unknown error'}`
+          message: `OpenSearch error: ${error instanceof Error ? error.message : 'Unknown error'}`
         }
       }
     } else {
-      results.checks.elasticsearch = {
+      results.checks.opensearch = {
         status: 'not_configured',
-        message: 'Elasticsearch URL not configured'
+        message: 'OpenSearch URL not configured'
       }
     }
 

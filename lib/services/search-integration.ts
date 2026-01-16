@@ -1,4 +1,4 @@
-import { createElasticsearchService } from '@/lib/search/elasticsearch'
+import { createSearchService } from '@/lib/search'
 import { executeQuery } from '@/lib/database'
 
 export interface FileIndexData {
@@ -23,7 +23,7 @@ export interface FileIndexData {
 }
 
 export class SearchIntegrationService {
-  private elasticsearchService = createElasticsearchService()
+  private elasticsearchService = createSearchService()
 
   /**
    * Index a file in Elasticsearch when it's uploaded or updated

@@ -1,7 +1,7 @@
 import { executeQuery, executeSingle, executeComplexQuery } from '@/lib/database'
 import { createHybridStorageService } from './hybrid-storage'
 import { createTextExtractionService } from './text-extraction'
-import { createElasticsearchService } from '@/lib/search/elasticsearch'
+import { createSearchService } from '@/lib/search'
 import { getRedisInstance } from '@/lib/cache/redis'
 
 export interface FileRecord {
@@ -79,7 +79,7 @@ export class FileService {
   private redis = getRedisInstance()
   private storageService = createHybridStorageService()
   private textExtractionService = createTextExtractionService()
-  private searchService = createElasticsearchService()
+  private searchService = createSearchService()
 
   /**
    * Get file by ID with permissions and metadata

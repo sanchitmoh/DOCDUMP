@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createHybridStorageService } from '@/lib/services/hybrid-storage'
 import { createTextExtractionService } from '@/lib/services/text-extraction'
-import { createElasticsearchService } from '@/lib/search/elasticsearch'
+import { createSearchService } from '@/lib/search'
 import { executeQuery, executeSingle } from '@/lib/database'
 import { authenticateRequest, getOrCreateSystemEmployee } from '@/lib/auth'
 
@@ -186,7 +186,7 @@ export async function POST(request: NextRequest) {
     
     const storageService = createHybridStorageService()
     const textExtractionService = createTextExtractionService()
-    const searchService = createElasticsearchService()
+    const searchService = createSearchService()
 
     debug.timing('SERVICES', servicesStartTime, 'Services initialized')
 
