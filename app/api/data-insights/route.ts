@@ -321,10 +321,4 @@ function detectUnit(columnName: string): string {
   if (name.includes('date') || name.includes('time')) return 'date';
   
   return '';
-}$';
-  if (name.includes('percent') || name.includes('rate')) return '%';
-  if (name.includes('count') || name.includes('number')) return 'count';
-  if (name.includes('date') || name.includes('time')) return 'date';
-  
-  return '';
 }
