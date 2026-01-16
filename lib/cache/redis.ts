@@ -9,6 +9,7 @@ export interface RedisConfig {
   keyPrefix?: string
   retryDelayOnFailover?: number
   maxRetriesPerRequest?: number
+  tls?: boolean
 }
 
 export interface CacheOptions {
@@ -43,7 +44,7 @@ export class RedisService {
   constructor(config: RedisConfig) {
     this.keyPrefix = config.keyPrefix || 'corporate:'
     
-    this.client = new Redis({
+    const redisOptions: any = {
       host: config.host,
       port: config.port,
       password: config.password,
@@ -55,9 +56,16 @@ export class RedisService {
       connectTimeout: 10000,
       commandTimeout: 5000,
       retryDelayOnClusterDown: 300,
-      retryDelayOnFailover: 100,
-      maxRetriesPerRequest: 3,
-    })
+    }
+
+    // Add TLS if required (for Upstash)
+    if (config.tls) {
+      redisOptions.tls = {
+        rejectUnauthorized: false
+      }
+    }
+
+    this.client = new Redis(redisOptions)
 
     // Event handlers
     this.client.on('connect', () => {
@@ -525,12 +533,20 @@ export class RedisService {
 
 // Factory function to create Redis service instance
 export function createRedisService(): RedisService {
+  // Check if using Upstash (TLS required)
+  const isUpstash = process.env.REDIS_HOST?.includes('upstash.io') || process.env.REDIS_TLS === 'true'
+  
   const config: RedisConfig = {
     host: process.env.REDIS_HOST || 'localhost',
     port: parseInt(process.env.REDIS_PORT || '6379'),
     password: process.env.REDIS_PASSWORD || undefined,
     db: parseInt(process.env.REDIS_DB || '0'),
     keyPrefix: process.env.REDIS_KEY_PREFIX || 'corporate:',
+    tls: isUpstash,
+  }
+
+  if (isUpstash) {
+    console.log('🔒 Upstash/TLS Redis detected - enabling secure connection')
   }
 
   return new RedisService(config)

@@ -105,7 +105,11 @@ export class ElasticsearchService {
     const clientConfig: any = {
       node: config.url,
       requestTimeout: 30000,
-      pingTimeout: 3000
+      pingTimeout: 3000,
+      // Disable product check for Bonsai compatibility
+      ...(config.url.includes('bonsaisearch.net') && {
+        disablePrototypePoisoningProtection: true,
+      })
     }
 
     // Authentication
@@ -123,12 +127,17 @@ export class ElasticsearchService {
     // Security settings
     if (config.url.startsWith('https://')) {
       clientConfig.tls = {
-        rejectUnauthorized: process.env.NODE_ENV === 'production'
+        rejectUnauthorized: false
       }
     }
 
     this.client = new Client(clientConfig)
     this.indexPrefix = config.indexPrefix || 'corporate'
+    
+    console.log('📊 Elasticsearch client initialized:', {
+      node: config.url,
+      isBonsai: config.url.includes('bonsaisearch.net')
+    })
   }
 
   /**
