@@ -98,6 +98,45 @@ export default function Library() {
     department: "",
     visibility: "private",
   })
+
+  // Download function
+  const handleDownload = async (format?: string) => {
+    if (!selectedFile) return
+
+    try {
+      const response = await fetch(`/api/files/download/${selectedFile.id}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error('Download failed')
+      }
+
+      // Get the blob from response
+      const blob = await response.blob()
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = selectedFile.name
+      document.body.appendChild(a)
+      a.click()
+      
+      // Cleanup
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+      
+      setShowDownloadModal(false)
+      showToast('File downloaded successfully', 'success')
+    } catch (error) {
+      console.error('Download error:', error)
+      showToast('Failed to download file', 'error')
+    }
+  }
   const [uploading, setUploading] = useState(false)
   const [creatingFolder, setCreatingFolder] = useState(false)
   const [departments, setDepartments] = useState<Array<{id: number, name: string, code: string}>>([])
@@ -1200,26 +1239,24 @@ export default function Library() {
           {showDownloadModal && selectedFile && (
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
               <div className="glass rounded-lg p-6 max-w-md w-full">
-                <h2 className="text-xl font-semibold text-foreground mb-4">Download Format</h2>
+                <h2 className="text-xl font-semibold text-foreground mb-4">Download File</h2>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Click below to download: <span className="font-medium text-foreground">{selectedFile.name}</span>
+                </p>
                 <div className="space-y-2 mb-4">
-                  {["PDF", "DOCX", "XLSX", "PPT", "TXT"].map((format) => (
-                    <button
-                      key={format}
-                      className={`w-full px-4 py-2 rounded-lg transition text-sm font-medium ${
-                        format === selectedFile.file_type?.toUpperCase()
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-secondary hover:bg-secondary/80 text-foreground"
-                      }`}
-                    >
-                      {format} {format === selectedFile.file_type?.toUpperCase() && "(Original)"}
-                    </button>
-                  ))}
+                  <button
+                    onClick={() => handleDownload()}
+                    className="w-full px-4 py-3 rounded-lg transition text-sm font-medium bg-primary hover:bg-primary/90 text-primary-foreground"
+                  >
+                    <Download className="w-4 h-4 inline mr-2" />
+                    Download Original File
+                  </button>
                 </div>
                 <button
                   onClick={() => setShowDownloadModal(false)}
                   className="w-full px-4 py-2 bg-secondary hover:bg-secondary/80 transition rounded-lg text-foreground font-medium"
                 >
-                  Close
+                  Cancel
                 </button>
               </div>
             </div>
