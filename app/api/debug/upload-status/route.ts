@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
 
     try {
       const healthCheck = await searchService.healthCheck()
-      elasticsearchStatus = healthCheck.status
+      searchStatus = healthCheck.status
       
       if (healthCheck.status === 'healthy') {
         // Try to search for the document to check if it exists
@@ -90,28 +90,28 @@ export async function GET(request: NextRequest) {
           })
           
           if (searchResult.results.length > 0) {
-            elasticsearchDoc = {
+            searchDoc = {
               indexed: true,
               document_found: true,
               search_score: searchResult.results[0].score,
               title: searchResult.results[0].title
             }
           } else {
-            elasticsearchDoc = { 
+            searchDoc = { 
               indexed: false, 
               document_found: false,
               error: 'Document not found in search index' 
             }
           }
-        } catch (esError: any) {
-          elasticsearchDoc = { 
-            error: `Search error: ${esError.message}`, 
+        } catch (searchError: any) {
+          searchDoc = { 
+            error: `Search error: ${searchError.message}`, 
             indexed: false 
           }
         }
       }
-    } catch (esError) {
-      elasticsearchStatus = 'error'
+    } catch (searchError) {
+      searchStatus = 'error'
     }
 
     // Get file access logs
@@ -147,10 +147,10 @@ export async function GET(request: NextRequest) {
           enabled: !!process.env.OPENAI_API_KEY,
           status: aiContent.length > 0 ? 'completed' : 'pending'
         },
-        elasticsearch: {
-          status: elasticsearchStatus,
-          document: elasticsearchDoc,
-          indexed: !!elasticsearchDoc && !elasticsearchDoc.error
+        search: {
+          status: searchStatus,
+          document: searchDoc,
+          indexed: !!searchDoc && !searchDoc.error
         }
       },
       storage_info: {
