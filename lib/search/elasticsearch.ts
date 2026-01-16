@@ -516,25 +516,26 @@ export class ElasticsearchService {
         } : undefined
       }))
 
-      // Process facets
+      // Process facets with proper type casting
+      const aggs = response.aggregations as any
       const facets = {
-        departments: response.aggregations?.departments?.buckets?.map((bucket: any) => ({
+        departments: aggs?.departments?.buckets?.map((bucket: any) => ({
           key: bucket.key,
           count: bucket.doc_count
         })) || [],
-        file_types: response.aggregations?.file_types?.buckets?.map((bucket: any) => ({
+        file_types: aggs?.file_types?.buckets?.map((bucket: any) => ({
           key: bucket.key,
           count: bucket.doc_count
         })) || [],
-        authors: response.aggregations?.authors?.buckets?.map((bucket: any) => ({
+        authors: aggs?.authors?.buckets?.map((bucket: any) => ({
           key: bucket.key,
           count: bucket.doc_count
         })) || [],
-        tags: response.aggregations?.tags?.buckets?.map((bucket: any) => ({
+        tags: aggs?.tags?.buckets?.map((bucket: any) => ({
           key: bucket.key,
           count: bucket.doc_count
         })) || [],
-        visibility: response.aggregations?.visibility?.buckets?.map((bucket: any) => ({
+        visibility: aggs?.visibility?.buckets?.map((bucket: any) => ({
           key: bucket.key,
           count: bucket.doc_count
         })) || []
@@ -589,7 +590,11 @@ export class ElasticsearchService {
         size: 0
       })
 
-      return response.suggest?.title_suggest?.[0]?.options?.map((option: any) => option.text) || []
+      const suggestions = response.suggest?.title_suggest?.[0]?.options
+      if (Array.isArray(suggestions)) {
+        return suggestions.map((option: any) => option.text)
+      }
+      return []
     } catch (error) {
       console.error('Search suggestions error:', error)
       return []
