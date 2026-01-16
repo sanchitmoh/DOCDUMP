@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { authenticateRequest } from '@/lib/auth'
 import { executeQuery } from '@/lib/database'
-import { createElasticsearchService } from '@/lib/search/elasticsearch'
+import { createSearchService } from '@/lib/search'
 import { getRedisInstance } from '@/lib/cache/redis'
 
 export async function GET(request: NextRequest) {
@@ -38,11 +38,11 @@ export async function GET(request: NextRequest) {
       healthCheck.overall_status = 'degraded'
     }
 
-    // Elasticsearch Health Check
+    // Search Health Check
     try {
-      const esService = createElasticsearchService()
-      const esStart = Date.now()
-      const esHealth = await esService.healthCheck()
+      const searchService = createSearchService()
+      const searchStart = Date.now()
+      const searchHealth = await searchService.healthCheck()
       const esTime = Date.now() - esStart
 
       healthCheck.services.elasticsearch = {

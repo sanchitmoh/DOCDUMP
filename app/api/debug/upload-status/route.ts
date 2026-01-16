@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { authenticateRequest } from '@/lib/auth'
 import { executeQuery } from '@/lib/database'
-import { createElasticsearchService } from '@/lib/search/elasticsearch'
+import { createSearchService } from '@/lib/search'
 
 export async function GET(request: NextRequest) {
   try {
@@ -71,10 +71,10 @@ export async function GET(request: NextRequest) {
       WHERE file_id = ?
     `, [fileId])
 
-    // Check Elasticsearch status
-    const searchService = createElasticsearchService()
-    let elasticsearchStatus = 'unknown'
-    let elasticsearchDoc = null
+    // Check Search status
+    const searchService = createSearchService()
+    let searchStatus = 'unknown'
+    let searchDoc = null
 
     try {
       const healthCheck = await searchService.healthCheck()

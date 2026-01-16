@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createElasticsearchService } from '@/lib/search/elasticsearch'
+import { createSearchService } from '@/lib/search'
 import { authenticateRequest } from '@/lib/auth'
 
 export async function GET(request: NextRequest) {
@@ -76,8 +76,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Execute search
-    const elasticsearchService = createElasticsearchService()
-    const searchResults = await elasticsearchService.searchDocuments(searchQuery)
+    const searchService = createSearchService()
+    const searchResults = await searchService.searchDocuments(searchQuery)
 
     return NextResponse.json({
       success: true,
@@ -119,8 +119,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Execute search
-    const elasticsearchService = createElasticsearchService()
-    const searchResults = await elasticsearchService.searchDocuments(searchQuery)
+    const searchService = createSearchService()
+    const searchResults = await searchService.searchDocuments(searchQuery)
 
     return NextResponse.json({
       success: true,

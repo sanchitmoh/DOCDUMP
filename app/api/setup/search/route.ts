@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createElasticsearchService } from '@/lib/search/elasticsearch'
+import { createSearchService } from '@/lib/search'
 
 export async function GET(request: NextRequest) {
   try {
@@ -9,11 +9,11 @@ export async function GET(request: NextRequest) {
       tests: {}
     }
 
-    // Test Elasticsearch connection
+    // Test Search connection
     try {
-      const esService = createElasticsearchService()
-      const esHealth = await esService.healthCheck()
-      results.tests.elasticsearch = esHealth
+      const searchService = createSearchService()
+      const searchHealth = await searchService.healthCheck()
+      results.tests.search = searchHealth
 
       // Test index creation
       try {
