@@ -122,7 +122,7 @@ Format as JSON with keys: businessInsights, risks, opportunities, recommendation
 }
 
 function extractKeyMetrics(analysis: any): any[] {
-  const metrics = [];
+  const metrics: any[] = [];
   
   Object.entries(analysis.statistics).forEach(([column, stats]: [string, any]) => {
     if (stats.type === 'numeric') {
@@ -153,7 +153,7 @@ function extractKeyMetrics(analysis: any): any[] {
 }
 
 function identifyTrends(analysis: any): any[] {
-  const trends = [];
+  const trends: any[] = [];
   
   // Look for time-based patterns
   const dateColumns = analysis.summary.columns.filter((col: string) => 
@@ -187,7 +187,7 @@ function identifyTrends(analysis: any): any[] {
 }
 
 function detectAnomalies(analysis: any): any[] {
-  const anomalies = [];
+  const anomalies: any[] = [];
   
   Object.entries(analysis.statistics).forEach(([column, stats]: [string, any]) => {
     if (stats.type === 'numeric' && stats.standardDeviation) {
@@ -222,7 +222,7 @@ function detectAnomalies(analysis: any): any[] {
 }
 
 function generateActionableRecommendations(analysis: any): any[] {
-  const recommendations = [];
+  const recommendations: any[] = [];
   
   // Data quality recommendations
   if (analysis.summary.totalRecords < 100) {
