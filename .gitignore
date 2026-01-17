@@ -18,6 +18,7 @@ Thumbs.db
 # Documentation and tests
 docs/
 tests/
+scripts/
 
 # Storage and data
 storage/
