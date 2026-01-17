@@ -13,7 +13,7 @@ const s3Client = new S3Client({
   }
 })
 
-export async function POST(request: NextRequest) {
+export async function POST(_request: NextRequest) {
   try {
     console.log('🔧 Processing pending extractions...')
 
@@ -61,10 +61,23 @@ export async function POST(request: NextRequest) {
           })
 
           const response = await s3Client.send(getObjectCommand)
-          const chunks = []
           
-          for await (const chunk of response.Body) {
-            chunks.push(chunk)
+          if (!response.Body) {
+            throw new Error('No response body from S3')
+          }
+
+          // Convert stream to buffer
+          const stream = response.Body as any
+          const chunks: Uint8Array[] = []
+          
+          if (stream[Symbol.asyncIterator]) {
+            for await (const chunk of stream) {
+              chunks.push(chunk)
+            }
+          } else {
+            // Fallback for non-streaming response
+            const arrayBuffer = await stream.transformToByteArray()
+            chunks.push(new Uint8Array(arrayBuffer))
           }
           
           const buffer = Buffer.concat(chunks)
@@ -198,7 +211,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   try {
     // Get extraction status
     const [statusCounts] = await executeQuery(`

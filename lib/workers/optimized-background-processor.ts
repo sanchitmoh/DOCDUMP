@@ -1,4 +1,5 @@
 import { getRedisInstance } from '@/lib/cache/redis'
+import { enhanceRedisWithQueue } from '@/lib/cache/enhanced-redis'
 import { createTextExtractionService } from '@/lib/services/text-extraction'
 import { createUnifiedExtractionService } from '@/lib/services/unified-extraction-service'
 import { createHybridStorageService } from '@/lib/services/hybrid-storage'
@@ -28,7 +29,7 @@ export interface ProcessorMetrics {
 }
 
 export class OptimizedBackgroundProcessor {
-  private redis = getRedisInstance()
+  private redis = enhanceRedisWithQueue(getRedisInstance())
   private textExtractionService = createTextExtractionService()
   private unifiedExtractionService = createUnifiedExtractionService()
   private storageService = createHybridStorageService()

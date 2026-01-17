@@ -20,8 +20,9 @@ export class EnhancedRedisQueue {
   private redis: Redis
   private processingSet = new Set<string>()
 
-  constructor(redis: Redis) {
-    this.redis = redis
+  constructor(redis: Redis | any) {
+    // If it's a RedisService, get the underlying client
+    this.redis = redis.getClient ? redis.getClient() : redis
   }
 
   /**
@@ -373,7 +374,7 @@ export class EnhancedRedisQueue {
 }
 
 // Extend the existing Redis instance with queue functionality
-export function enhanceRedisWithQueue(redis: Redis): Redis & {
+export function enhanceRedisWithQueue(redisService: any): any & {
   addJob: EnhancedRedisQueue['addJob']
   getNextJob: EnhancedRedisQueue['getNextJob']
   getNextJobByPriority: EnhancedRedisQueue['getNextJobByPriority']
@@ -388,10 +389,13 @@ export function enhanceRedisWithQueue(redis: Redis): Redis & {
   getFailedJobs: EnhancedRedisQueue['getFailedJobs']
   cleanup: EnhancedRedisQueue['cleanup']
   healthCheck: EnhancedRedisQueue['healthCheck']
+  ping: () => Promise<string>
 } {
+  // Get the underlying Redis client
+  const redis = redisService.getClient ? redisService.getClient() : redisService
   const queue = new EnhancedRedisQueue(redis)
   
-  return Object.assign(redis, {
+  return Object.assign(redisService, {
     addJob: queue.addJob.bind(queue),
     getNextJob: queue.getNextJob.bind(queue),
     getNextJobByPriority: queue.getNextJobByPriority.bind(queue),
@@ -405,6 +409,7 @@ export function enhanceRedisWithQueue(redis: Redis): Redis & {
     getProcessingJobs: queue.getProcessingJobs.bind(queue),
     getFailedJobs: queue.getFailedJobs.bind(queue),
     cleanup: queue.cleanup.bind(queue),
-    healthCheck: queue.healthCheck.bind(queue)
+    healthCheck: queue.healthCheck.bind(queue),
+    ping: redisService.ping ? redisService.ping.bind(redisService) : redis.ping.bind(redis)
   })
 }

@@ -86,6 +86,13 @@ export class RedisService {
   }
 
   /**
+   * Get the underlying Redis client (for advanced operations)
+   */
+  getClient(): Redis {
+    return this.client
+  }
+
+  /**
    * Generate cache key with prefix
    */
   private generateKey(key: string): string {
@@ -491,6 +498,17 @@ export class RedisService {
     } catch (error) {
       console.error('Redis info error:', error)
       return null
+    }
+  }
+
+  /**
+   * Ping Redis server
+   */
+  async ping(): Promise<string> {
+    try {
+      return await this.client.ping()
+    } catch (error) {
+      throw new Error(`Redis ping failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 

@@ -1,4 +1,5 @@
 import { getRedisInstance } from '@/lib/cache/redis'
+import { enhanceRedisWithQueue } from '@/lib/cache/enhanced-redis'
 import { createTextExtractionService } from '@/lib/services/text-extraction'
 import { createUnifiedExtractionService } from '@/lib/services/unified-extraction-service'
 import { createHybridStorageService } from '@/lib/services/hybrid-storage'
@@ -28,7 +29,7 @@ export interface ProcessorMetrics {
 }
 
 export class OptimizedBackgroundProcessor {
-  private redis = getRedisInstance()
+  private redis = enhanceRedisWithQueue(getRedisInstance())
   private textExtractionService = createTextExtractionService()
   private unifiedExtractionService = createUnifiedExtractionService()
   private storageService = createHybridStorageService()
@@ -171,9 +172,7 @@ export class OptimizedBackgroundProcessor {
     
     try {
       for (let i = 0; i < batchSize; i++) {
-        const job = this.config.enablePriorityQueue 
-          ? await this.redis.getNextJobByPriority(queueType)
-          : await this.redis.getNextJob(queueType)
+        const job = await this.redis.getNextJob(queueType)
         
         if (job) {
           jobs.push({ ...job, queueType })
@@ -600,6 +599,46 @@ export class OptimizedBackgroundProcessor {
   }
 
   /**
+   * Get processor status (backward compatibility)
+   */
+  getStatus(): {
+    isRunning: boolean
+    queueLengths: Promise<Record<string, number>>
+    metrics: ProcessorMetrics
+  } {
+    return {
+      isRunning: this.isRunning,
+      queueLengths: this.getQueueLengths(),
+      metrics: this.getMetrics()
+    }
+  }
+
+  /**
+   * Get queue lengths for all queues
+   */
+  private async getQueueLengths(): Promise<Record<string, number>> {
+    const queueTypes = ['unified-extraction', 'text-extraction', 'storage-sync', 'search-indexing']
+    const lengths: Record<string, number> = {}
+    
+    for (const queueType of queueTypes) {
+      try {
+        lengths[queueType] = await this.redis.getQueueLength(queueType)
+      } catch (error) {
+        lengths[queueType] = 0
+      }
+    }
+    
+    return lengths
+  }
+
+  /**
+   * Process pending database jobs (backward compatibility)
+   */
+  async processPendingDatabaseJobs(): Promise<void> {
+    await this.syncPendingJobsToRedis()
+  }
+
+  /**
    * Update processor configuration
    */
   updateConfig(newConfig: Partial<ProcessorConfig>): void {
@@ -616,5 +655,21 @@ export class OptimizedBackgroundProcessor {
 
 // Factory function
 export function createOptimizedBackgroundProcessor(config?: Partial<ProcessorConfig>): OptimizedBackgroundProcessor {
+  return new OptimizedBackgroundProcessor(config)
+}
+
+// Global processor instance for backward compatibility
+let globalProcessor: OptimizedBackgroundProcessor | null = null
+
+// Factory function for backward compatibility
+export function getBackgroundProcessor(): OptimizedBackgroundProcessor {
+  if (!globalProcessor) {
+    globalProcessor = new OptimizedBackgroundProcessor()
+  }
+  return globalProcessor
+}
+
+// Create and export default processor instance
+export function createBackgroundProcessor(config?: Partial<ProcessorConfig>): OptimizedBackgroundProcessor {
   return new OptimizedBackgroundProcessor(config)
 }

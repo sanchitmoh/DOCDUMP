@@ -1,0 +1,17 @@
+Test Document for Extraction
+
+This is a test document to verify that the automatic extraction
+process is working correctly in the serverless environment.
+
+Key Points:
+- Automatic extraction should trigger immediately after upload
+- Text should be extracted and stored in the database
+- Search indexing should be updated
+- AI processing should be scheduled (if enabled)
+
+Test Data:
+- Numbers: 123, 456, 789
+- Dates: 2024-01-17, January 17th, 2026
+- Keywords: extraction, serverless, automation, testing
+
+This document contains approximately 50 words for testing purposes.
