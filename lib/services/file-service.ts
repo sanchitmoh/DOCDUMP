@@ -1,6 +1,6 @@
 import { executeQuery, executeSingle, executeComplexQuery } from '@/lib/database'
 import { createHybridStorageService } from './hybrid-storage'
-import { createTextExtractionService } from './text-extraction'
+import { createEnhancedTextExtractionService } from './enhanced-text-extraction'
 import { createSearchService } from '@/lib/search'
 import { getRedisInstance } from '@/lib/cache/redis'
 
@@ -78,7 +78,7 @@ export interface FileTag {
 export class FileService {
   private redis = getRedisInstance()
   private storageService = createHybridStorageService()
-  private textExtractionService = createTextExtractionService()
+  private textExtractionService = createEnhancedTextExtractionService()
   private searchService = createSearchService()
 
   /**
@@ -418,7 +418,7 @@ export class FileService {
       ])
 
       // Remove from search index
-      await this.searchService.deleteDocument(fileId.toString())
+      await this.searchService.deleteDocument(fileId.toString(), organizationId.toString())
     } catch (error) {
       console.error('Error deleting file:', error)
       throw error

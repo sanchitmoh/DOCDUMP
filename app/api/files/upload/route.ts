@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createHybridStorageService } from '@/lib/services/hybrid-storage'
-import { createTextExtractionService } from '@/lib/services/text-extraction'
+import { createEnhancedTextExtractionService } from '@/lib/services/enhanced-text-extraction'
 import { createSearchService } from '@/lib/search'
 import { executeQuery, executeSingle } from '@/lib/database'
 import { authenticateRequest, getOrCreateSystemEmployee } from '@/lib/auth'
@@ -47,24 +47,6 @@ function getFileTypeFromMime(mimeType: string): string {
 }
 
 // Helper method to determine extraction method
-function getExtractionMethod(mimeType: string): string | null {
-  const methodMap: { [key: string]: string } = {
-    'application/pdf': 'pdfplumber',
-    'application/msword': 'docx',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-    'application/vnd.ms-excel': 'xlsx',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
-    'text/plain': 'custom',
-    'image/jpeg': 'tesseract',
-    'image/png': 'tesseract',
-    'image/gif': 'tesseract',
-    'image/bmp': 'tesseract',
-    'image/tiff': 'tesseract'
-  }
-
-  return methodMap[mimeType] || null
-}
-
 export async function POST(request: NextRequest) {
   const uploadStartTime = Date.now()
   const uploadId = Math.random().toString(36).substring(7)
@@ -185,7 +167,7 @@ export async function POST(request: NextRequest) {
     const servicesStartTime = Date.now()
     
     const storageService = createHybridStorageService()
-    const textExtractionService = createTextExtractionService()
+    const textExtractionService = createEnhancedTextExtractionService()
     const searchService = createSearchService()
 
     debug.timing('SERVICES', servicesStartTime, 'Services initialized')
@@ -257,28 +239,45 @@ export async function POST(request: NextRequest) {
       storageResult.fileId
     ])
 
-    // Determine extraction method based on file type
-    const extractionMethod = getExtractionMethod(file.type)
-    let extractionJobId: number | null = null
-
-    if (extractionMethod) {
-      try {
-        // Create text extraction job
-        const jobResult = await textExtractionService.createExtractionJob(
-          storageResult.fileId,
-          organizationId,
-          extractionMethod,
-          5 // Medium priority
-        )
+    // Extract text directly using enhanced extraction service
+    let extractedText = ''
+    let extractionMetadata: any = {}
+    
+    try {
+      console.log(`🔍 Starting text extraction for: ${file.name} (${file.type})`)
+      
+      const extractionResult = await textExtractionService.extractText(
+        storageResult.filePath,
+        file.type,
+        file.size
+      )
+      
+      if (extractionResult.success) {
+        extractedText = extractionResult.text
+        extractionMetadata = extractionResult.metadata
         
-        if (jobResult.success && jobResult.jobId) {
-          extractionJobId = jobResult.jobId
-        } else {
-          console.warn('Failed to create text extraction job:', jobResult.error)
-        }
-      } catch (error) {
-        console.warn('Failed to create text extraction job:', error)
+        console.log(`✅ Text extraction successful: ${extractedText.length} characters`)
+        
+        // Store extracted text in database
+        await executeSingle(`
+          INSERT INTO extracted_text_content (
+            file_id, content_type, extracted_text, word_count, character_count, extraction_metadata
+          ) VALUES (?, 'full_text', ?, ?, ?, ?)
+        `, [
+          storageResult.fileId,
+          extractedText,
+          extractionResult.metadata.wordCount,
+          extractionResult.metadata.characterCount,
+          JSON.stringify(extractionMetadata)
+        ])
+        
+      } else {
+        console.warn(`⚠️ Text extraction failed: ${extractionResult.error}`)
+        extractionMetadata = { error: extractionResult.error, attempts: extractionResult.metadata.extractionAttempts }
       }
+    } catch (error) {
+      console.error('❌ Text extraction error:', error)
+      extractionMetadata = { error: error instanceof Error ? error.message : 'Unknown error' }
     }
 
     // Index file in Elasticsearch
@@ -292,7 +291,7 @@ export async function POST(request: NextRequest) {
           file_id: storageResult.fileId.toString(),
           organization_id: organizationId.toString(),
           title: file.name,
-          content: '', // Will be updated after text extraction
+          content: extractedText, // Use extracted text
           author: userId.toString(),
           department: department || '',
           tags: tags ? tags.split(',').map(t => t.trim()) : [],
@@ -654,13 +653,20 @@ export async function POST(request: NextRequest) {
           primary: storageResult.primaryLocation,
           backup: storageResult.backupLocation
         },
-        extraction_job_id: extractionJobId,
+        extraction_info: {
+          success: extractedText.length > 0,
+          text_length: extractedText.length,
+          word_count: extractionMetadata.wordCount || 0,
+          method: extractionMetadata.method || 'none',
+          processing_time_ms: extractionMetadata.processingTimeMs || 0,
+          metadata: extractionMetadata
+        },
         checksum: storageResult.checksum,
         upload_metadata: {
           upload_id: uploadId,
           processing_time_ms: Date.now() - uploadStartTime,
           ai_processing_enabled: !!process.env.OPENAI_API_KEY,
-          text_extraction_enabled: !!extractionJobId,
+          text_extraction_enabled: extractedText.length > 0,
           elasticsearch_indexed: true
         }
       }
