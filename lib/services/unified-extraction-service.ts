@@ -1009,7 +1009,6 @@ Respond in JSON format.`
     }
 
     return mimeTypes[fileExt] || 'application/octet-stream'
-  }octet-stream'
   }
 }
 
