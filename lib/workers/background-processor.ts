@@ -1,5 +1,6 @@
 import { getRedisInstance } from '@/lib/cache/redis'
 import { createTextExtractionService } from '@/lib/services/text-extraction'
+import { createUnifiedExtractionService } from '@/lib/services/unified-extraction-service'
 import { createHybridStorageService } from '@/lib/services/hybrid-storage'
 import { createSearchService } from '@/lib/search'
 import { executeQuery } from '@/lib/database'
@@ -7,6 +8,7 @@ import { executeQuery } from '@/lib/database'
 export class BackgroundProcessor {
   private redis = getRedisInstance()
   private textExtractionService = createTextExtractionService()
+  private unifiedExtractionService = createUnifiedExtractionService()
   private storageService = createHybridStorageService()
   private searchService = createSearchService()
   private isRunning = false
@@ -62,7 +64,10 @@ export class BackgroundProcessor {
     if (!this.isRunning) return
 
     try {
-      // Process text extraction jobs
+      // Process unified extraction jobs (new comprehensive system)
+      await this.processUnifiedExtractionJobs()
+
+      // Process text extraction jobs (legacy system)
       await this.processTextExtractionJobs()
 
       // Process storage sync jobs
@@ -77,7 +82,36 @@ export class BackgroundProcessor {
   }
 
   /**
-   * Process text extraction jobs from Redis queue
+   * Process unified extraction jobs from Redis queue (new comprehensive system)
+   */
+  private async processUnifiedExtractionJobs(): Promise<void> {
+    try {
+      const job = await this.redis.getNextJob('unified-extraction')
+      if (!job) return
+
+      console.log(`Processing unified extraction job: ${job.id}`)
+
+      try {
+        await this.unifiedExtractionService.processBackgroundJob(job.data.jobId)
+        console.log(`Unified extraction job ${job.id} completed successfully`)
+
+        // Update search index after successful extraction
+        await this.scheduleSearchIndexUpdate(job.data.fileId, job.data.organizationId)
+
+      } catch (error) {
+        console.error(`Unified extraction job ${job.id} failed:`, error)
+        
+        // Job retry logic is handled within the unified extraction service
+        // No need to re-queue here
+      }
+
+    } catch (error) {
+      console.error('Error processing unified extraction jobs:', error)
+    }
+  }
+
+  /**
+   * Process text extraction jobs from Redis queue (legacy system)
    */
   private async processTextExtractionJobs(): Promise<void> {
     try {
@@ -208,7 +242,7 @@ export class BackgroundProcessor {
 
       if (action === 'delete') {
         // Delete from search index
-        const deleteResult = await this.searchService.deleteDocument(fileId.toString())
+        const deleteResult = await this.searchService.deleteDocument(fileId.toString(), organizationId.toString())
         if (!deleteResult) {
           throw new Error('Failed to delete document from search index')
         }
@@ -360,13 +394,15 @@ export class BackgroundProcessor {
    */
   private async getQueueLengths(): Promise<{ [key: string]: number }> {
     try {
-      const [textExtraction, storageSync, searchIndexing] = await Promise.all([
+      const [unifiedExtraction, textExtraction, storageSync, searchIndexing] = await Promise.all([
+        this.redis.getQueueLength('unified-extraction'),
         this.redis.getQueueLength('text-extraction'),
         this.redis.getQueueLength('storage-sync'),
         this.redis.getQueueLength('search-indexing')
       ])
 
       return {
+        'unified-extraction': unifiedExtraction,
         'text-extraction': textExtraction,
         'storage-sync': storageSync,
         'search-indexing': searchIndexing
@@ -382,7 +418,34 @@ export class BackgroundProcessor {
    */
   async processPendingDatabaseJobs(): Promise<void> {
     try {
-      // Get pending text extraction jobs from database
+      // Get pending unified extraction jobs from database
+      const pendingUnifiedJobs = await executeQuery(`
+        SELECT * FROM unified_extraction_jobs 
+        WHERE status = 'pending' 
+        ORDER BY priority DESC, created_at ASC 
+        LIMIT 10
+      `)
+      
+      for (const job of pendingUnifiedJobs) {
+        // Add to Redis queue if not already there
+        await this.redis.addJob('unified-extraction', {
+          jobId: job.id,
+          fileId: job.file_id,
+          organizationId: job.organization_id,
+          options: {
+            enableAI: job.ai_processing,
+            enableOCR: true,
+            preferredMethods: JSON.parse(job.extraction_methods || '[]'),
+            priority: job.priority
+          }
+        }, job.priority)
+      }
+
+      if (pendingUnifiedJobs.length > 0) {
+        console.log(`Added ${pendingUnifiedJobs.length} pending unified extraction jobs to queue`)
+      }
+
+      // Get pending text extraction jobs from database (legacy)
       const pendingJobs = await this.textExtractionService.getPendingJobs(10)
       
       for (const job of pendingJobs) {

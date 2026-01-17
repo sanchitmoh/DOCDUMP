@@ -5,13 +5,14 @@ import * as path from 'path'
 import mammoth from 'mammoth'
 import * as XLSX from 'xlsx'
 import { getRedisInstance } from '@/lib/cache/redis'
+import { createAWSTextractService, AWSTextractService } from './aws-textract'
 
 export interface TextExtractionJob {
   id: number
   file_id: number
   organization_id: number
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled'
-  extraction_method: 'tesseract' | 'pytesseract' | 'pdfplumber' | 'pdfminer' | 'docx' | 'pptx' | 'xlsx' | 'textract' | 'custom'
+  extraction_method: 'tesseract' | 'pytesseract' | 'pdfplumber' | 'pdfminer' | 'docx' | 'pptx' | 'xlsx' | 'textract' | 'textract-analysis' | 'custom'
   priority: number
   retry_count: number
   max_retries: number
@@ -90,6 +91,11 @@ export interface OCRResult {
 
 export class TextExtractionService {
   private redis = getRedisInstance()
+  private textractService: AWSTextractService
+
+  constructor() {
+    this.textractService = createAWSTextractService()
+  }
 
   /**
    * Create a new text extraction job
@@ -129,8 +135,373 @@ export class TextExtractionService {
   }
 
   /**
-   * Get extraction job by ID
+   * Enhanced extraction method that tries OCR for all file types when primary extraction fails
    */
+  async extractWithFallbackOCR(filePath: string, primaryMethod: string): Promise<{ text: string; metadata: any }> {
+    try {
+      let extractionResult: { text: string; metadata: any }
+      
+      // Try primary extraction method first
+      switch (primaryMethod) {
+        case 'pdf':
+          extractionResult = await this.extractFromPDF(filePath)
+          break
+        case 'docx':
+          extractionResult = await this.extractFromDOCX(filePath)
+          break
+        case 'xlsx':
+          extractionResult = await this.extractFromExcel(filePath)
+          break
+        case 'txt':
+          extractionResult = await this.extractFromText(filePath)
+          break
+        default:
+          // For images and unknown types, go straight to OCR
+          extractionResult = { text: '', metadata: { method: 'none', attempts: [] } }
+      }
+
+      // If primary extraction was successful and has meaningful text, return it
+      if (extractionResult.text && extractionResult.text.trim().length > 10) {
+        console.log(`✅ Primary extraction successful: ${extractionResult.text.length} characters`)
+        return extractionResult
+      }
+
+      // Primary extraction failed or returned minimal text, try OCR methods
+      console.log(`⚠️ Primary extraction yielded minimal text (${extractionResult.text.length} chars), trying OCR...`)
+      
+      const supportedExtensions = ['.pdf', '.png', '.jpg', '.jpeg', '.tiff', '.tif']
+      const fileExt = path.extname(filePath).toLowerCase()
+      
+      // Try AWS Textract first (if file type is supported)
+      if (supportedExtensions.includes(fileExt)) {
+        try {
+          console.log('🔍 Attempting AWS Textract extraction...')
+          const textractResult = await this.extractWithTextract(filePath, false)
+          
+          if (textractResult.text && textractResult.text.trim().length > 10) {
+            console.log(`✅ Textract extraction successful: ${textractResult.text.length} characters`)
+            
+            // Combine metadata from both attempts
+            return {
+              text: textractResult.text,
+              metadata: {
+                ...textractResult.metadata,
+                primary_method: primaryMethod,
+                primary_result: extractionResult.metadata,
+                fallback_method: 'aws-textract',
+                note: `Primary ${primaryMethod} extraction failed, successfully extracted with AWS Textract`
+              }
+            }
+          }
+        } catch (textractError) {
+          console.log('⚠️ Textract extraction failed:', (textractError as Error).message)
+        }
+      }
+
+      // Try Tesseract OCR as final fallback for images
+      const imageExtensions = ['.png', '.jpg', '.jpeg', '.tiff', '.tif', '.bmp', '.gif']
+      if (imageExtensions.includes(fileExt)) {
+        try {
+          console.log('🔍 Attempting Tesseract OCR extraction...')
+          const ocrResult = await this.extractFromImage(filePath)
+          
+          if (ocrResult.text && ocrResult.text.trim().length > 5) {
+            console.log(`✅ Tesseract OCR extraction successful: ${ocrResult.text.length} characters`)
+            
+            return {
+              text: ocrResult.text,
+              metadata: {
+                ...ocrResult.metadata,
+                primary_method: primaryMethod,
+                primary_result: extractionResult.metadata,
+                fallback_method: 'tesseract-ocr',
+                note: `Primary ${primaryMethod} extraction failed, successfully extracted with Tesseract OCR`
+              }
+            }
+          }
+        } catch (ocrError) {
+          console.log('⚠️ Tesseract OCR extraction failed:', (ocrError as Error).message)
+        }
+      }
+
+      // All methods failed, return the best result we have
+      console.warn(`❌ All extraction methods failed for ${filePath}`)
+      return {
+        text: extractionResult.text || '',
+        metadata: {
+          ...extractionResult.metadata,
+          primary_method: primaryMethod,
+          fallback_attempts: ['aws-textract', 'tesseract-ocr'],
+          final_method: 'failed',
+          note: 'All extraction methods failed. File may be corrupted, encrypted, or contain only images without text.'
+        }
+      }
+
+    } catch (error) {
+      console.error('❌ Enhanced extraction failed:', error)
+      throw new Error(`Enhanced extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+  async extractWithTextract(filePath: string, useAnalysis: boolean = false): Promise<{ text: string; metadata: any }> {
+    try {
+      console.log(`🔍 Starting AWS Textract extraction for: ${filePath}`)
+      
+      // Check if file type is supported by Textract
+      const supportedExtensions = ['.pdf', '.png', '.jpg', '.jpeg', '.tiff', '.tif']
+      const fileExt = path.extname(filePath).toLowerCase()
+      
+      if (!supportedExtensions.includes(fileExt)) {
+        throw new Error(`Unsupported file type for Textract: ${fileExt}`)
+      }
+
+      let result: any
+
+      if (useAnalysis) {
+        // Use document analysis for structured data (tables, forms)
+        result = await this.textractService.analyzeDocumentAuto(filePath, ['TABLES', 'FORMS'])
+        
+        // Format structured data in metadata
+        const structuredData = {
+          tables: result.tables?.map((table: any) => ({
+            rows: table.rows,
+            confidence: Math.round(table.confidence),
+            page: table.page
+          })) || [],
+          forms: result.forms?.map((form: any) => ({
+            key: form.key,
+            value: form.value,
+            confidence: Math.round(form.confidence),
+            page: form.page
+          })) || []
+        }
+
+        console.log(`✅ Textract analysis completed: ${result.text.length} characters, ${structuredData.tables.length} tables, ${structuredData.forms.length} forms`)
+
+        return {
+          text: result.text,
+          metadata: {
+            ...result.metadata,
+            confidence: Math.round(result.confidence),
+            method: 'aws-textract-analysis',
+            structured_data: structuredData,
+            note: `Extracted with AWS Textract analysis. Found ${structuredData.tables.length} tables and ${structuredData.forms.length} form fields.`
+          }
+        }
+      } else {
+        // Use simple text extraction
+        result = await this.textractService.extractTextAuto(filePath)
+        
+        console.log(`✅ Textract extraction completed: ${result.text.length} characters, confidence: ${Math.round(result.confidence)}%`)
+
+        return {
+          text: result.text,
+          metadata: {
+            ...result.metadata,
+            confidence: Math.round(result.confidence),
+            method: 'aws-textract',
+            note: `Extracted with AWS Textract. High accuracy OCR with ${Math.round(result.confidence)}% confidence.`
+          }
+        }
+      }
+
+    } catch (error) {
+      console.error('❌ AWS Textract extraction failed:', error)
+      throw new Error(`AWS Textract extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  /**
+   * Automatically determine the best extraction method for a file
+   */
+  async determineExtractionMethod(filePath: string, preferOCR: boolean = false): Promise<string> {
+    const fileExt = path.extname(filePath).toLowerCase()
+    
+    // If OCR is preferred, use Textract for supported files
+    if (preferOCR) {
+      const textractSupported = ['.pdf', '.png', '.jpg', '.jpeg', '.tiff', '.tif']
+      if (textractSupported.includes(fileExt)) {
+        return 'textract'
+      }
+      
+      const imageExtensions = ['.png', '.jpg', '.jpeg', '.tiff', '.tif', '.bmp', '.gif']
+      if (imageExtensions.includes(fileExt)) {
+        return 'tesseract'
+      }
+    }
+    
+    // Standard method selection
+    switch (fileExt) {
+      case '.pdf':
+        return 'pdfplumber' // Will fallback to OCR if needed
+      case '.docx':
+      case '.doc':
+        return 'docx'
+      case '.xlsx':
+      case '.xls':
+        return 'xlsx'
+      case '.txt':
+      case '.md':
+      case '.rtf':
+        return 'custom'
+      case '.png':
+      case '.jpg':
+      case '.jpeg':
+      case '.tiff':
+      case '.tif':
+      case '.bmp':
+      case '.gif':
+        return 'textract' // Prefer Textract for images
+      default:
+        return 'textract' // Default to Textract for unknown types
+    }
+  }
+
+  /**
+   * Comprehensive extraction that tries all available methods for maximum text recovery
+   */
+  async extractComprehensive(filePath: string): Promise<{ text: string; metadata: any }> {
+    try {
+      console.log(`🔍 Starting comprehensive extraction for: ${filePath}`)
+      const fileExt = path.extname(filePath).toLowerCase()
+      
+      const results: Array<{ method: string; text: string; metadata: any; success: boolean }> = []
+      
+      // Try all applicable methods
+      const methods = [
+        { name: 'textract', condition: ['.pdf', '.png', '.jpg', '.jpeg', '.tiff', '.tif'].includes(fileExt) },
+        { name: 'textract-analysis', condition: ['.pdf', '.png', '.jpg', '.jpeg', '.tiff', '.tif'].includes(fileExt) },
+        { name: 'pdf-parse', condition: fileExt === '.pdf' },
+        { name: 'docx', condition: ['.docx', '.doc'].includes(fileExt) },
+        { name: 'xlsx', condition: ['.xlsx', '.xls'].includes(fileExt) },
+        { name: 'tesseract', condition: ['.png', '.jpg', '.jpeg', '.tiff', '.tif', '.bmp', '.gif'].includes(fileExt) },
+        { name: 'text', condition: ['.txt', '.md', '.rtf'].includes(fileExt) }
+      ]
+      
+      for (const method of methods) {
+        if (!method.condition) continue
+        
+        try {
+          console.log(`🔄 Trying ${method.name} extraction...`)
+          let result: { text: string; metadata: any }
+          
+          switch (method.name) {
+            case 'textract':
+              result = await this.extractWithTextract(filePath, false)
+              break
+            case 'textract-analysis':
+              result = await this.extractWithTextract(filePath, true)
+              break
+            case 'pdf-parse':
+              result = await this.extractFromPDF(filePath)
+              break
+            case 'docx':
+              result = await this.extractFromDOCX(filePath)
+              break
+            case 'xlsx':
+              result = await this.extractFromExcel(filePath)
+              break
+            case 'tesseract':
+              result = await this.extractFromImage(filePath)
+              break
+            case 'text':
+              result = await this.extractFromText(filePath)
+              break
+            default:
+              continue
+          }
+          
+          results.push({
+            method: method.name,
+            text: result.text,
+            metadata: result.metadata,
+            success: result.text.length > 0
+          })
+          
+          console.log(`✅ ${method.name}: ${result.text.length} characters extracted`)
+          
+        } catch (error) {
+          console.log(`❌ ${method.name} failed:`, (error as Error).message)
+          results.push({
+            method: method.name,
+            text: '',
+            metadata: { error: (error as Error).message },
+            success: false
+          })
+        }
+      }
+      
+      // Find the best result (most text extracted)
+      const successfulResults = results.filter(r => r.success && r.text.length > 10)
+      
+      if (successfulResults.length === 0) {
+        // No successful extractions
+        console.warn(`❌ All extraction methods failed for ${filePath}`)
+        return {
+          text: '',
+          metadata: {
+            method: 'comprehensive-failed',
+            attempts: results.map(r => ({ method: r.method, success: r.success, length: r.text.length })),
+            note: 'All extraction methods failed. File may be corrupted, encrypted, or contain only images.'
+          }
+        }
+      }
+      
+      // Sort by text length (descending) and confidence if available
+      const bestResult = successfulResults.sort((a, b) => {
+        const lengthDiff = b.text.length - a.text.length
+        if (lengthDiff !== 0) return lengthDiff
+        
+        const aConf = a.metadata.confidence || 0
+        const bConf = b.metadata.confidence || 0
+        return bConf - aConf
+      })[0]
+      
+      console.log(`🏆 Best result: ${bestResult.method} with ${bestResult.text.length} characters`)
+      
+      return {
+        text: bestResult.text,
+        metadata: {
+          ...bestResult.metadata,
+          method: `comprehensive-${bestResult.method}`,
+          all_attempts: results.map(r => ({ 
+            method: r.method, 
+            success: r.success, 
+            length: r.text.length,
+            confidence: r.metadata.confidence 
+          })),
+          note: `Comprehensive extraction used ${bestResult.method} as the best method among ${successfulResults.length} successful attempts.`
+        }
+      }
+      
+    } catch (error) {
+      console.error('❌ Comprehensive extraction failed:', error)
+      throw new Error(`Comprehensive extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+  async createSmartExtractionJob(
+    fileId: number,
+    organizationId: number,
+    filePath: string,
+    priority: number = 5,
+    preferOCR: boolean = false
+  ): Promise<{ success: boolean; jobId?: number; method?: string; error?: string }> {
+    try {
+      const extractionMethod = await this.determineExtractionMethod(filePath, preferOCR)
+      
+      const result = await this.createExtractionJob(fileId, organizationId, extractionMethod, priority)
+      
+      return {
+        ...result,
+        method: extractionMethod
+      }
+    } catch (error) {
+      console.error('Error creating smart extraction job:', error)
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      }
+    }
+  }
   async getExtractionJob(jobId: number): Promise<TextExtractionJob | null> {
     try {
       const jobs = await executeQuery(`
@@ -633,25 +1004,50 @@ export class TextExtractionService {
 
       let extractionResult: { text: string; metadata: any }
 
-      // Extract text based on file type
+      // Extract text based on file type with OCR fallback
       switch (job.extraction_method) {
         case 'tesseract':
           extractionResult = await this.extractFromImage(filePath)
           break
+        case 'textract':
+          extractionResult = await this.extractWithTextract(filePath, false)
+          break
+        case 'textract-analysis':
+          extractionResult = await this.extractWithTextract(filePath, true)
+          break
         case 'pdfplumber':
-          extractionResult = await this.extractFromPDF(filePath)
+          extractionResult = await this.extractWithFallbackOCR(filePath, 'pdf')
           break
         case 'docx':
-          extractionResult = await this.extractFromDOCX(filePath)
+          extractionResult = await this.extractWithFallbackOCR(filePath, 'docx')
           break
         case 'xlsx':
-          extractionResult = await this.extractFromExcel(filePath)
+          extractionResult = await this.extractWithFallbackOCR(filePath, 'xlsx')
           break
         case 'custom':
-          extractionResult = await this.extractFromText(filePath)
+          extractionResult = await this.extractWithFallbackOCR(filePath, 'txt')
           break
         default:
-          throw new Error(`Unsupported extraction method: ${job.extraction_method}`)
+          // For unknown file types, try to determine by extension and use OCR fallback
+          const fileExt = path.extname(filePath).toLowerCase()
+          if (['.pdf'].includes(fileExt)) {
+            extractionResult = await this.extractWithFallbackOCR(filePath, 'pdf')
+          } else if (['.docx', '.doc'].includes(fileExt)) {
+            extractionResult = await this.extractWithFallbackOCR(filePath, 'docx')
+          } else if (['.xlsx', '.xls'].includes(fileExt)) {
+            extractionResult = await this.extractWithFallbackOCR(filePath, 'xlsx')
+          } else if (['.txt', '.md', '.rtf'].includes(fileExt)) {
+            extractionResult = await this.extractWithFallbackOCR(filePath, 'txt')
+          } else if (['.png', '.jpg', '.jpeg', '.tiff', '.tif', '.bmp', '.gif'].includes(fileExt)) {
+            // For images, try Textract first, then Tesseract
+            try {
+              extractionResult = await this.extractWithTextract(filePath, false)
+            } catch {
+              extractionResult = await this.extractFromImage(filePath)
+            }
+          } else {
+            throw new Error(`Unsupported file type: ${fileExt}`)
+          }
       }
 
       // Calculate text statistics
@@ -669,25 +1065,46 @@ export class TextExtractionService {
         extraction_metadata: extractionResult.metadata
       })
 
-      // Store document metadata if applicable
-      if (['pdfplumber', 'docx', 'xlsx'].includes(job.extraction_method)) {
-        await this.storeDocumentMetadata(job.file_id, extractionResult.metadata, job.extraction_method)
-      }
+      // Store OCR results if applicable (for any method that used OCR)
+      const ocrMethods = ['tesseract', 'textract', 'textract-analysis']
+      const usedOCR = ocrMethods.includes(job.extraction_method) || 
+                      extractionResult.metadata.fallback_method?.includes('textract') ||
+                      extractionResult.metadata.fallback_method?.includes('ocr')
 
-      // Store OCR results if applicable
-      if (job.extraction_method === 'tesseract') {
+      if (usedOCR) {
+        let ocrEngine = 'tesseract'
+        
+        // Determine OCR engine used
+        if (job.extraction_method.startsWith('textract') || 
+            extractionResult.metadata.method?.includes('textract') ||
+            extractionResult.metadata.fallback_method?.includes('textract')) {
+          ocrEngine = 'aws_textract'
+        }
+        
         await this.storeOCRResult({
           file_id: job.file_id,
           extraction_job_id: jobId,
-          ocr_engine: 'tesseract',
+          ocr_engine: ocrEngine as 'tesseract' | 'aws_textract' | 'google_vision' | 'azure_vision' | 'custom',
           language: 'eng',
           confidence_score: extractionResult.metadata.confidence,
           word_count: wordCount,
-          detected_text_regions: extractionResult.metadata.detected_text_regions,
+          detected_text_regions: extractionResult.metadata.detected_text_regions || 
+                                 extractionResult.metadata.words || 
+                                 extractionResult.metadata.lines,
           processing_time_ms: extractionResult.metadata.processing_time_ms,
           ocr_text: extractionResult.text,
           ocr_data_json: extractionResult.metadata
         })
+      }
+
+      // Store document metadata for all document types
+      if (['pdfplumber', 'docx', 'xlsx', 'textract', 'textract-analysis'].includes(job.extraction_method) ||
+          extractionResult.metadata.primary_method) {
+        const docType = job.extraction_method === 'pdfplumber' ? 'pdf' : 
+                       job.extraction_method === 'textract' || job.extraction_method === 'textract-analysis' ? 'pdf' :
+                       job.extraction_method
+        
+        await this.storeDocumentMetadata(job.file_id, extractionResult.metadata, docType)
       }
 
       // Update job status to completed

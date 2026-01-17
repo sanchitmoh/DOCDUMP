@@ -671,11 +671,9 @@ export class ElasticsearchService {
   /**
    * Delete a document from the index
    */
-  async deleteDocument(fileId: string): Promise<boolean> {
+  async deleteDocument(fileId: string, organizationId: string): Promise<boolean> {
     try {
-      const documentId = crypto.createHash('sha256')
-        .update(`${fileId}`)
-        .digest('hex')
+      const documentId = this.generateDocumentId(fileId, organizationId)
 
       await this.client.delete({
         index: this.getDocumentsIndex(),
