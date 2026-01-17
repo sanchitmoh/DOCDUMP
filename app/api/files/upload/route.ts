@@ -4,6 +4,7 @@ import { createEnhancedTextExtractionService } from '@/lib/services/enhanced-tex
 import { createSearchService } from '@/lib/search'
 import { executeQuery, executeSingle } from '@/lib/database'
 import { authenticateRequest, getOrCreateSystemEmployee } from '@/lib/auth'
+import * as fs from 'fs/promises'
 
 // Enhanced debug logger
 const debug = {
@@ -246,17 +247,79 @@ export async function POST(request: NextRequest) {
     try {
       console.log(`🔍 Starting text extraction for: ${file.name} (${file.type})`)
       
-      const extractionResult = await textExtractionService.extractText(
-        storageResult.filePath,
-        file.type,
-        file.size
-      )
+      // For serverless environments, we need to work with the buffer directly
+      // since the file is stored in S3 and not accessible locally
+      let extractionResult
       
-      if (extractionResult.success) {
+      if (storageResult.primaryLocation.storage_type === 's3') {
+        // In serverless environment, create a temporary file for extraction
+        const tempDir = '/tmp'
+        const tempFileName = `${Date.now()}-${Math.random().toString(36).substring(7)}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
+        const tempFilePath = `${tempDir}/${tempFileName}`
+        
+        try {
+          console.log(`📝 Creating temporary file: ${tempFilePath}`)
+          
+          // Ensure temp directory exists (for local development)
+          try {
+            await fs.mkdir(tempDir, { recursive: true })
+          } catch (mkdirError) {
+            // Ignore error if directory already exists
+          }
+          
+          // Write buffer to temporary file
+          await fs.writeFile(tempFilePath, fileBuffer)
+          console.log(`✅ Temporary file created: ${fileBuffer.length} bytes`)
+          
+          // Extract text from temporary file
+          extractionResult = await textExtractionService.extractText(
+            tempFilePath,
+            file.type,
+            file.size
+          )
+          
+          console.log(`🔍 Extraction completed: ${extractionResult.success ? 'SUCCESS' : 'FAILED'}`)
+          
+          // Clean up temporary file
+          try {
+            await fs.unlink(tempFilePath)
+            console.log(`🧹 Cleaned up temporary file`)
+          } catch (cleanupError) {
+            console.warn('⚠️ Failed to cleanup temp file:', cleanupError.message)
+          }
+        } catch (tempError) {
+          console.error('❌ Failed to create/process temp file:', tempError)
+          // Fallback: try to extract directly from buffer (limited support)
+          extractionResult = {
+            text: '',
+            metadata: {
+              method: 'temp-file-failed',
+              wordCount: 0,
+              characterCount: 0,
+              processingTimeMs: 0,
+              fileSize: file.size,
+              extractionAttempts: ['temp-file-failed', tempError.message]
+            },
+            success: false,
+            error: `Temporary file processing failed: ${tempError.message}`
+          }
+        }
+      } else {
+        // Local storage - use the file path directly
+        const localPath = storageResult.primaryLocation.location_path
+        console.log(`📁 Using local file path: ${localPath}`)
+        extractionResult = await textExtractionService.extractText(
+          localPath,
+          file.type,
+          file.size
+        )
+      }
+      
+      if (extractionResult.success && extractionResult.text.length > 0) {
         extractedText = extractionResult.text
         extractionMetadata = extractionResult.metadata
         
-        console.log(`✅ Text extraction successful: ${extractedText.length} characters`)
+        console.log(`✅ Text extraction successful: ${extractedText.length} characters, ${extractionResult.metadata.wordCount} words`)
         
         // Store extracted text in database
         await executeSingle(`
@@ -266,18 +329,57 @@ export async function POST(request: NextRequest) {
         `, [
           storageResult.fileId,
           extractedText,
-          extractionResult.metadata.wordCount,
-          extractionResult.metadata.characterCount,
+          extractionResult.metadata.wordCount || 0,
+          extractionResult.metadata.characterCount || extractedText.length,
           JSON.stringify(extractionMetadata)
         ])
         
+        console.log(`💾 Extracted text stored in database`)
+        
       } else {
-        console.warn(`⚠️ Text extraction failed: ${extractionResult.error}`)
-        extractionMetadata = { error: extractionResult.error, attempts: extractionResult.metadata.extractionAttempts }
+        console.warn(`⚠️ Text extraction failed: ${extractionResult.error || 'No text extracted'}`)
+        extractionMetadata = { 
+          error: extractionResult.error || 'No text extracted', 
+          attempts: extractionResult.metadata?.extractionAttempts || ['unknown-failure'],
+          method: extractionResult.metadata?.method || 'failed'
+        }
+        
+        // Store failed extraction metadata
+        await executeSingle(`
+          INSERT INTO extracted_text_content (
+            file_id, content_type, extracted_text, word_count, character_count, extraction_metadata
+          ) VALUES (?, 'full_text', ?, ?, ?, ?)
+        `, [
+          storageResult.fileId,
+          '',
+          0,
+          0,
+          JSON.stringify(extractionMetadata)
+        ])
       }
     } catch (error) {
       console.error('❌ Text extraction error:', error)
-      extractionMetadata = { error: error instanceof Error ? error.message : 'Unknown error' }
+      extractionMetadata = { 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : 'No stack trace'
+      }
+      
+      // Store error metadata
+      try {
+        await executeSingle(`
+          INSERT INTO extracted_text_content (
+            file_id, content_type, extracted_text, word_count, character_count, extraction_metadata
+          ) VALUES (?, 'full_text', ?, ?, ?, ?)
+        `, [
+          storageResult.fileId,
+          '',
+          0,
+          0,
+          JSON.stringify(extractionMetadata)
+        ])
+      } catch (dbError) {
+        console.error('❌ Failed to store extraction error:', dbError)
+      }
     }
 
     // Index file in Elasticsearch
